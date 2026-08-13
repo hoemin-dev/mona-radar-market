@@ -1,0 +1,11 @@
+{
+  "response": {
+    "header": { "resultCode": "00", "resultMsg": "정상" },
+    "body": {
+      "items": { "item": [{ "bidNtceNo": "TEST_NOTICE", "bidNtceOrd": "000" }] },
+      "numOfRows": 10,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "mona-radar-market",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run typecheck && npm run collector:typecheck && vite build",
+    "typecheck": "tsc --noEmit",
+    "collector:typecheck": "tsc -p collector/tsconfig.json --noEmit",
+    "collector:build": "tsc -p collector/tsconfig.json",
+    "test": "npm run collector:build && node --test dist-collector/koneps/client.test.js",
+    "tauri": "tauri"
+  },
+  "dependencies": { "@tauri-apps/api": "^2.8.0" },
+  "devDependencies": { "@tauri-apps/cli": "^2.8.4", "@types/node": "^24.3.0", "typescript": "^5.9.2", "vite": "^7.1.3" }
+}
