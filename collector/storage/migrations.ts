@@ -269,4 +269,58 @@ export const MIGRATIONS: readonly Migration[] = [{
     ) STRICT;
     CREATE INDEX idx_bid_basis_revision_basis ON bid_basis_amount_revision(bid_basis_amount_id,changed_at DESC);
   `,
+}, {
+  version: 4,
+  name: "phase3f_manual_collector",
+  sql: `
+    ALTER TABLE collector_run ADD COLUMN inserted_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE collector_run ADD COLUMN unchanged_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE collector_run ADD COLUMN updated_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE collector_run ADD COLUMN deferred_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE collector_run ADD COLUMN normalization_error_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE collector_run ADD COLUMN effective_range_start TEXT;
+    ALTER TABLE collector_run ADD COLUMN effective_range_end TEXT;
+    ALTER TABLE collector_run ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0;
+
+    ALTER TABLE collector_operation_run ADD COLUMN inserted_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE collector_operation_run ADD COLUMN unchanged_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE collector_operation_run ADD COLUMN updated_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE collector_operation_run ADD COLUMN deferred_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE collector_operation_run ADD COLUMN normalization_error_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE collector_operation_run ADD COLUMN overlap_minutes INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE collector_operation_run ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0;
+
+    CREATE TABLE collector_checkpoint (
+      checkpoint_id INTEGER PRIMARY KEY,
+      service TEXT NOT NULL,
+      operation TEXT NOT NULL,
+      query_basis TEXT NOT NULL,
+      successful_through TEXT NOT NULL,
+      last_run_id TEXT NOT NULL REFERENCES collector_run(run_id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(service,operation,query_basis)
+    ) STRICT;
+    CREATE INDEX idx_checkpoint_boundary ON collector_checkpoint(successful_through);
+
+    CREATE TABLE collector_work_item (
+      work_item_id INTEGER PRIMARY KEY,
+      created_run_id TEXT NOT NULL REFERENCES collector_run(run_id),
+      last_attempt_run_id TEXT REFERENCES collector_run(run_id),
+      operation TEXT NOT NULL CHECK(operation IN ('getBidPblancListInfoThngPurchsObjPrdct','getBidPblancListInfoThngBsisAmount')),
+      bid_ntce_no TEXT NOT NULL,
+      bid_ntce_ord TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','running','succeeded','failed','cancelled')),
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0),
+      last_error_category TEXT,
+      last_error_message TEXT,
+      created_at TEXT NOT NULL,
+      started_at TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL,
+      UNIQUE(created_run_id,operation,bid_ntce_no,bid_ntce_ord)
+    ) STRICT;
+    CREATE INDEX idx_work_item_retry ON collector_work_item(status,operation,created_at);
+    CREATE INDEX idx_work_item_identity ON collector_work_item(operation,bid_ntce_no,bid_ntce_ord);
+  `,
 }];

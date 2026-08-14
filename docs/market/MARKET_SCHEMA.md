@@ -1,9 +1,8 @@
 # Market SQLite schema
 
-Phase 3-C applies only the collection/run and RAW tables described in section 2.
-All domain tables remain proposals for later phases. See
-`PHASE3C_RAW_PERSISTENCE.md` for the implemented columns, constraints, indexes,
-and transaction boundary.
+Phases 3-C through 3-F implement RAW persistence, bid notice/item/basis
+projections, and the manual collector state described below. Later domain
+tables remain proposals.
 
 ## 1. Storage conventions
 
@@ -26,11 +25,19 @@ Manual user action. Columns: `run_id TEXT PK`, `mode TEXT` (`period`/`incrementa
 
 ### `collector_checkpoint`
 
-`checkpoint_id INTEGER PK`, `service`, `operation`, `query_basis`, last successful boundary raw/normalized, overlap configuration, successful run/operation IDs, updated time, version. Unique `(service, operation, query_basis)`. The opening-complete fan-out uses a separate work queue rather than a fake timestamp checkpoint.
+**Phase 3-F status: implemented by migration v4 for bid-notice discovery.**
+Columns are service, operation, query basis, KST `successful_through`, last run,
+and creation/update timestamps. Unique `(service, operation, query_basis)`.
+The boundary advances only after a complete discovery chunk is RAW-persisted
+and normalized.
 
 ### `collector_work_item`
 
-For identity-driven fan-out (`getOpengResultListInfoOpengCompt` and optional contract detail by number): operation, source identity JSON/hash, state, attempts, next eligible time, last error, source operation run. Unique `(operation, identity_hash)` for active/current work.
+**Phase 3-F status: implemented by migration v4 for purchase-item and
+basis-amount enrichment.** Rows retain creating/last-attempt run, operation,
+notice number/order, status, attempts, safe error category/message, and
+timestamps. Unique within `(created_run_id, operation, notice number, notice
+order)` so overlap in a later run can intentionally re-query current state.
 
 ### `api_call`, `api_response_blob`, `api_raw_item`, `raw_item_observation`
 

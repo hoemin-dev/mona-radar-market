@@ -29,12 +29,12 @@ async function setup():Promise<{db:DatabaseSync;runId:string;item:Record<string,
   return {db,runId,item:(await fixture("bid-item.json")).response.body.items[0]!,basis:(await fixture("bid-basis-amount.json")).response.body.items[0]!};
 }
 
-test("migration v3 upgrades v2, fresh databases reach v3, and reopen is idempotent",()=>{
+test("migration v3 remains valid when databases continue through current schema",()=>{
   const db=new DatabaseSync(":memory:"); db.exec("PRAGMA foreign_keys=ON; BEGIN"); db.exec(MIGRATIONS[0]!.sql); db.exec(MIGRATIONS[1]!.sql); db.exec("PRAGMA user_version=2; COMMIT");
   migrateMarketDatabase(db); migrateMarketDatabase(db);
-  assert.equal(CURRENT_SCHEMA_VERSION,3); assert.equal((db.prepare("PRAGMA user_version").get() as {user_version:number}).user_version,3);
+  assert.equal(CURRENT_SCHEMA_VERSION,4); assert.equal((db.prepare("PRAGMA user_version").get() as {user_version:number}).user_version,4);
   for(const table of ["bid_item","bid_item_revision","bid_basis_amount","bid_basis_amount_revision"]) assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table));
-  db.close(); const fresh=openMarketDatabase(":memory:"); assert.equal((fresh.prepare("PRAGMA user_version").get() as {user_version:number}).user_version,3); fresh.close();
+  db.close(); const fresh=openMarketDatabase(":memory:"); assert.equal((fresh.prepare("PRAGMA user_version").get() as {user_version:number}).user_version,4); fresh.close();
 });
 
 test("live fixtures retain exact array nesting and 19/24 string fields",async()=>{

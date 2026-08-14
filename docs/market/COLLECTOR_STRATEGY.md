@@ -1,5 +1,17 @@
 # Manual collector strategy
 
+## Phase 3-F implemented subset
+
+Phase 3-F implements the manual period/incremental engine only for goods bid
+notice discovery and notice-identity purchase-item/basis-amount enrichment.
+Unlike the broader future graph below, these two enrichment operations are not
+independent date scans in the current implementation. Discovery has the sole
+timestamp checkpoint; durable work items drive enrichment. See
+`PHASE3F_MANUAL_COLLECTOR.md` for the authoritative implemented behavior.
+
+Opening, award, participant, contract, and contract-detail streams below remain
+future design only. No scheduler or automatic execution exists.
+
 ## 1. Non-negotiable execution model
 
 The collector runs only after an explicit user action. There is no cron, timer, background polling, startup sync, or scheduler. Closing the app stops initiating work; resumable state only supports the next explicit user action.

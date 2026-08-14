@@ -11,7 +11,9 @@
     "collector:build": "tsc -p collector/tsconfig.json",
     "koneps:verify-live": "npm run collector:build && node dist-collector/koneps/live-verify.js",
     "koneps:verify-phase3e": "npm run collector:build && node dist-collector/koneps/phase3e-verify.js",
-    "test": "npm run collector:build && node --test dist-collector/koneps/client.test.js dist-collector/storage/raw-persistence.test.js dist-collector/normalization/bid-notice.test.js dist-collector/normalization/phase3e.test.js",
+    "collector:manual": "npm run collector:build && node dist-collector/orchestration/cli.js",
+    "collector:inspect": "npm run collector:build && node dist-collector/orchestration/inspect.js",
+    "test": "npm run collector:build && node --test dist-collector/koneps/client.test.js dist-collector/storage/raw-persistence.test.js dist-collector/normalization/bid-notice.test.js dist-collector/normalization/phase3e.test.js dist-collector/orchestration/collector.test.js",
     "tauri": "tauri"
   },
   "dependencies": { "@tauri-apps/api": "^2.8.0" },
