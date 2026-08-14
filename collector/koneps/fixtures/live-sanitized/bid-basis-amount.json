@@ -1,0 +1,41 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "00",
+      "resultMsg": "정상"
+    },
+    "body": {
+      "items": [
+        {
+          "bidNtceNo": "R26BK01681950",
+          "bidNtceOrd": "000",
+          "bidClsfcNo": "1",
+          "bidNtceNm": "수의계약 안내공고[2026년 보조장비(개인장비가방) 구매]",
+          "bssamt": "19600000",
+          "bssamtOpenDt": "2026-08-13 16:38:42",
+          "rsrvtnPrceRngBgnRate": "-3",
+          "rsrvtnPrceRngEndRate": "+3",
+          "evlBssAmt": "",
+          "dfcltydgrCfcnt": "",
+          "etcGnrlexpnsBssRate": "",
+          "gnrlMngcstBssRate": "",
+          "prftBssRate": "",
+          "lbrcstBssRate": "",
+          "industSftyHelthMngcst": "",
+          "rtrfundNon": "",
+          "envCnsrvcst": "",
+          "scontrctPayprcePayGrntyFee": "",
+          "mrfnHealthInsrprm": "",
+          "npnInsrprm": "",
+          "rmrk1": "",
+          "rmrk2": "",
+          "usefulAmt": "0",
+          "inptDt": "2026-08-13 16:38:42"
+        }
+      ],
+      "numOfRows": 5,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

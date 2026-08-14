@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "collector:typecheck": "tsc -p collector/tsconfig.json --noEmit",
     "collector:build": "tsc -p collector/tsconfig.json",
-    "test": "npm run collector:build && node --test dist-collector/koneps/client.test.js",
+    "koneps:verify-live": "npm run collector:build && node dist-collector/koneps/live-verify.js",
+    "koneps:verify-phase3e": "npm run collector:build && node dist-collector/koneps/phase3e-verify.js",
+    "test": "npm run collector:build && node --test dist-collector/koneps/client.test.js dist-collector/storage/raw-persistence.test.js dist-collector/normalization/bid-notice.test.js dist-collector/normalization/phase3e.test.js",
     "tauri": "tauri"
   },
   "dependencies": { "@tauri-apps/api": "^2.8.0" },

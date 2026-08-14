@@ -1,67 +1,79 @@
-# Live API verification checklist for the next phase
+# Live API verification checklist
 
-No item below was tested in this design phase.
+## Bid-notice verification
 
-## Envelope and transport
+- [x] Only the approved goods bid-notice search operation is registered
+- [x] Dry-run by default; `--execute` required for transport
+- [x] Missing backend key stops before HTTP transport
+- [x] Historical dates require `--historical`; window/page/row limits enforced
+- [x] Exact evidence stays in ignored `runtime/koneps-live/`; committed fixtures are sanitized
+- [x] HTTP 200, string result code `00`, and `preserve` key mode verified
+- [x] Actual JSON nesting is `response.body.items` array
+- [x] Pagination verified: total 14, pages contain 5 / 5 / 4 rows, page 3 is final
+- [x] Empty live response verified: HTTP 200, result `00`, total 0, `items=[]`
+- [x] Single-item response remains an array
+- [x] Historical bid-notice availability verified with 2001 live data
+- [x] Sparse 2001 records normalize without inventing values
+- [x] Practical initial bid-notice backfill lower bound recorded as `2001-01-01` (not a claim of a record on that date)
 
-- [ ] Actual JSON nesting and key capitalization for all three services
+## Phase 3-E purchase-item verification
+
+- [x] Operation: `getBidPblancListInfoThngPurchsObjPrdct`
+- [x] Identity mode `inqryDiv=2`; notice number and order required
+- [x] HTTP 200, result `00`, total 1, actual items 1
+- [x] `items` is an array and the live item has 19 string fields
+- [x] Identity fields present: `bidNtceNo`, `bidNtceOrd`, `bidClsfcNo`, `prdctSno`
+- [x] Sanitized shape-preserving fixture stored as `bid-item.json`
+- [x] Migration v3 and normalization implemented from live evidence
+- [ ] Multiple purchase items and cross-response stability of `prdctSno`
+- [ ] Historical availability for this operation
+
+## Phase 3-E basis-amount verification
+
+- [x] Operation: `getBidPblancListInfoThngBsisAmount`
+- [x] Identity mode `inqryDiv=2`; notice number required by verification command
+- [x] HTTP 200, result `00`, total 1, actual items 1
+- [x] `items` is an array and the live item has 24 string fields
+- [x] Identity fields present: `bidNtceNo`, `bidNtceOrd`, `bidClsfcNo`
+- [x] Sanitized shape-preserving fixture stored as `bid-basis-amount.json`
+- [x] Migration v3 and normalization implemented from live evidence
+- [ ] Multiple current basis rows for one full notice/order/classification key
+- [ ] Historical availability for this operation
+
+## Still unresolved — envelope and transport
+
 - [ ] XML/JSON parity and default format when `type` is omitted
-- [ ] Empty-result envelope and whether `items` is absent, null, object or array
-- [ ] HTTP status versus `resultCode` behavior
-- [ ] Maximum supported `numOfRows`; returned versus requested page size
-- [ ] `totalCount` stability while paging and final-page behavior
-- [ ] Daily 1000-call quota semantics and whether it is per operation/key/account/day
-- [ ] Encoding of `ServiceKey` and safe redaction behavior
+- [ ] Maximum supported `numOfRows`
+- [ ] Daily call-quota semantics
+- [ ] Retry behavior for repeated identical live requests
 
-## Time/range semantics
+## Still unresolved — time and change semantics
 
-- [ ] Start/end inclusivity for minute and date requests
-- [ ] Same-minute boundary duplicates and ordering
-- [ ] Maximum allowed date span per request
-- [ ] Source timezone and daylight-saving assumptions (expected Korea local, not asserted)
-- [ ] Delayed registration/change distribution to choose overlap per operation
-- [ ] Whether notice “공고일시” and “공고게시일시” are used consistently in operation 20 documentation/results
+- [ ] Start/end inclusivity and same-minute boundary ordering
+- [ ] Maximum permitted live date span beyond the verification safety limit
+- [ ] Delayed registration/change distribution for overlap design
+- [ ] Meaning of change timestamps and cancellation/rebid transitions
+- [ ] Future explicit change/delete API behavior
 
-## Nulls and types
+## Still unresolved — value domains
 
-- [ ] Missing key vs JSON null vs empty string vs `N/A`
-- [ ] Amounts beyond 64-bit range or containing decimal/comma/sign
-- [ ] Quantity, percentage and score precision/scale
-- [ ] Old malformed `dlvrTmlmt` values
-- [ ] Boolean code variants beyond Y/N
-- [ ] URL escaping and invalid/truncated URL values
+- [ ] Amounts containing decimal, comma, sign, or values outside signed 64-bit range
+- [ ] Quantity, percentage, coefficient, and score scale/range across diverse records
+- [ ] Historical malformed delivery-deadline variants
+- [ ] Boolean variants beyond Y/N
+- [ ] URL escaping and truncated URL values
 
-## Identity and cardinality
+## Still unresolved — later entities and cross-links
 
-- [ ] Multiple `bidClsfcNo` per notice/order
-- [ ] Multiple purchase items and stability of `prdctSno`
-- [ ] Multiple basis amounts for a full bid key
-- [ ] Multiple rebids and zero-padding consistency of `rbidNo`
-- [ ] Duplicate participant business number/rank combinations
-- [ ] Multiple winners and joint winners in award output
-- [ ] Business-number masking/null behavior
-- [ ] `corpList` and `dminsttList` escaping when values contain caret/comma/brackets
-- [ ] Contract item uniqueness when `prdctIdntNo` is absent
-- [ ] Organization-code namespaces and reuse across roles
-
-## Cross-service links
-
-- [ ] Contract `ntceNo` parsing across legacy and new numbering
-- [ ] Whether contract `ntceNo` includes notice order consistently
-- [ ] `prcrmntReqNo` ↔ `reqNo` normalization/equality
-- [ ] `untyNtceNo` relationship to normal notice number
+- [ ] Multiple rebids and `rbidNo` zero-padding
+- [ ] Participant and winner multiplicity/identity behavior
+- [ ] Business-number masking and null behavior
+- [ ] Contract packed-list escaping and contract-item uniqueness
+- [ ] Organization-code namespaces
+- [ ] Contract-to-notice and request-number normalization
 - [ ] Product-class consistency from bid item through contract item
 - [ ] Award-to-contract multiplicity and timing lag
 
-## Change/failure behavior
-
-- [ ] Modified notice returned by date overlap and meaning of `chgDt`
-- [ ] Cancelled notice representation in `ntceKindNm`/reason
-- [ ] Failed/rebid/opening-complete transitions
-- [ ] Future change/delete history API approval and actual keys
-- [ ] Retry-safe response for a repeated identical request
-- [ ] Schema drift detection using unknown fields
-
 ## Minimal-call protocol
 
-When implementation begins, use one narrow historical interval and one known identity per operation. Save exact redacted response bytes, compare XML/JSON only if needed, and stop after resolving this checklist's structural questions. Do not start a backfill during verification.
+Use one known identity or narrow historical interval per unresolved question. Preserve exact private evidence only under ignored runtime storage, commit only sanitized shape-preserving fixtures, and stop when structural evidence is sufficient. Do not start a backfill during verification.

@@ -27,6 +27,17 @@ export interface BidNoticeSearchParams extends KonepsRequestParams {
   readonly dtilPrdctClsfcNo?: string;
 }
 
+export interface BidItemIdentityParams extends KonepsRequestParams {
+  readonly inqryDiv: "2";
+  readonly bidNtceNo: string;
+  readonly bidNtceOrd: string;
+}
+
+export interface BidBasisAmountIdentityParams extends KonepsRequestParams {
+  readonly inqryDiv: "2";
+  readonly bidNtceNo: string;
+}
+
 export interface KonepsEnvelope {
   readonly resultCode: string;
   readonly resultMsg: string;

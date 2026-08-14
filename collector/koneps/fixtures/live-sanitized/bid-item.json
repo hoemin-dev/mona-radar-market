@@ -1,0 +1,36 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "00",
+      "resultMsg": "정상"
+    },
+    "body": {
+      "items": [
+        {
+          "bidNtceNo": "R26BK01681950",
+          "bidNtceOrd": "000",
+          "bidClsfcNo": "1",
+          "prdctSno": "1",
+          "dminsttCd": "6261496",
+          "dminsttNm": "부산광역시 소방재난본부",
+          "prdctClsfcNo": "53121503",
+          "prdctClsfcNoNm": "개인용소형가방",
+          "dtilPrdctClsfcNo": "5312150301",
+          "dtilPrdctClsfcNoNm": "개인용소형가방",
+          "prdctSpecNm": "규격서 참조",
+          "qty": "1",
+          "unit": "식",
+          "uprc": "19600000",
+          "dlvrTmlmtDt": "",
+          "dlvrDaynum": "90",
+          "dlvrPlce": "수요부서 지정장소",
+          "dlvryCndtnNm": "과업내역에 따름",
+          "ntceNticeDt": "2026-08-13 16:38:05"
+        }
+      ],
+      "numOfRows": 5,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

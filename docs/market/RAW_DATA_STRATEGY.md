@@ -10,6 +10,11 @@
 
 ## 2. Recommendation: bounded hybrid
 
+**Phase 3-C implementation status:** implemented for run/operation, call,
+response blob, canonical raw item, and observation storage. The default database
+is `runtime/market/mona-radar-market.sqlite3`; schema versioning uses ordered SQL
+migrations plus `PRAGMA user_version`. See `PHASE3C_RAW_PERSISTENCE.md`.
+
 Use **C**:
 
 1. `api_call` stores request metadata, response status, result code/message, paging counts, content type, byte count, SHA-256 and timestamps. It must store a redacted/canonical request; never persist `ServiceKey`.

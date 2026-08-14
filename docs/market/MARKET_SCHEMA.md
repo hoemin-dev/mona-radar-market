@@ -1,6 +1,9 @@
-# Market SQLite schema proposal
+# Market SQLite schema
 
-This is a design, not an applied migration. Names and constraints marked **NEEDS API VERIFICATION** must be validated before SQL is written.
+Phase 3-C applies only the collection/run and RAW tables described in section 2.
+All domain tables remain proposals for later phases. See
+`PHASE3C_RAW_PERSISTENCE.md` for the implemented columns, constraints, indexes,
+and transaction boundary.
 
 ## 1. Storage conventions
 
@@ -39,6 +42,11 @@ As defined in `RAW_DATA_STRATEGY.md`. Key constraints: blob SHA unique; raw item
 
 Purpose: current searchable notice header from `getBidPblancListInfoThngPPSSrch`.
 
+**Phase 3-D status: implemented by migration v2.** The implemented subset,
+types, warning policy, semantic hash, and revision table are specified in
+`PHASE3D_BID_NOTICE_NORMALIZATION.md`. Organization references remain code/name
+snapshots because the organization master is deferred.
+
 PK: local `bid_notice_id INTEGER`. Natural unique: `(bid_ntce_no, bid_ntce_ord)`.
 
 Core columns:
@@ -59,6 +67,10 @@ Update: UPSERT current row when `row_hash` changes; append `entity_revision` bef
 
 Purpose: purchase-target goods.
 
+**Phase 3-E status: implemented by migration v3.** The live-verified mapping,
+type policy, parent deferral, revisions, and lineage are specified in
+`PHASE3E_BID_ITEM_BASIS_AMOUNT.md`.
+
 Unique: `(bid_ntce_no,bid_ntce_ord,bid_clsfc_no,product_seq)`. Columns include demand organization snapshot/link, product/detailed classification codes/names, specification, quantity decimal TEXT, unit, unit price INTEGER, delivery deadline/day/place/condition, notice-posted raw/local. FK to notice is nullable/deferrable by `(number,order)` because ingestion order can vary.
 
 Indexes: product class, detailed class, demand organization, notice key, item/spec text.
@@ -66,6 +78,10 @@ Indexes: product class, detailed class, demand organization, notice key, item/sp
 ### `bid_basis_amount`
 
 Purpose: current basis/evaluation amounts per classification.
+
+**Phase 3-E status: implemented by migration v3.** Natural unique key is now
+`(bid_ntce_no,bid_ntce_ord,bid_clsfc_no)` based on the 24-field live response;
+multiple concurrent rows for that full key remain an explicit unresolved case.
 
 Unique candidate: `(bid_ntce_no,bid_ntce_ord,bid_clsfc_no)` **NEEDS API VERIFICATION**. Columns: notice name, basis amount, open time, reserve range rates, evaluation amount, difficulty and expense rates, insurance/safety/environment amounts, remarks, useful amount, input time. Update + revision history, not ignore.
 

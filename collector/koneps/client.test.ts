@@ -3,8 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { KonepsClient } from "./client.js";
 import { loadKonepsConfig, type KonepsClientConfig } from "./config.js";
-import { BID_NOTICE_SEARCH_OPERATION } from "./endpoints.js";
+import { BID_BASIS_AMOUNT_OPERATION, BID_ITEM_OPERATION, BID_NOTICE_SEARCH_OPERATION } from "./endpoints.js";
 import { KonepsError } from "./errors.js";
+import { extractLiveItems, inspectLiveShape, sanitizeLiveFixture } from "./live-shape.js";
+import { parseVerificationArguments, summarizePagination } from "./verification.js";
+import { parsePhase3eArguments } from "./phase3e-verify.js";
 import { redactKonepsUrl, redactSecrets } from "./redaction.js";
 import type { BidNoticeSearchParams, KonepsFetch } from "./types.js";
 
@@ -33,6 +36,10 @@ function config(overrides: Partial<KonepsClientConfig> = {}): KonepsClientConfig
 
 async function fixture(name: string): Promise<string> {
   return readFile(new URL(`../../collector/koneps/fixtures/${name}`, import.meta.url), "utf8");
+}
+
+async function liveFixture(name: string): Promise<string> {
+  return readFile(new URL(`../../collector/koneps/fixtures/live-sanitized/${name}`, import.meta.url), "utf8");
 }
 
 function jsonResponse(body: string, status = 200): Response {
@@ -152,4 +159,106 @@ test("missing backend environment key is a configuration error", () => {
     () => loadKonepsConfig({}),
     (error: unknown) => error instanceof KonepsError && error.category === "configuration",
   );
+});
+
+test("reports the fixture envelope, paging and item array without discarding unknown fields", async () => {
+  const parsed = JSON.parse(await fixture("normal.json")) as unknown;
+  const report = inspectLiveShape(parsed);
+  assert.equal(report.headerPath, "$.response.header");
+  assert.equal(report.pagingPath, "$.response.body");
+  assert.equal(report.itemPath, "$.response.body.items.item");
+  assert.equal(report.itemKind, "array");
+  assert.equal(report.itemCount, 1);
+  assert.deepEqual(report.itemFields.bidNtceNo, ["string"]);
+});
+
+test("sanitization preserves nesting, arrays, null and unknown fields while replacing contact values", () => {
+  const source = { response: { body: { items: { item: [{ unknown: 7, ofclTelNo: "02-123-4567", optional: null }] } } } };
+  const sanitized = sanitizeLiveFixture(source, FAKE_KEY) as typeof source;
+  assert.ok(Array.isArray(sanitized.response.body.items.item));
+  assert.equal(sanitized.response.body.items.item[0]?.unknown, 7);
+  assert.equal(sanitized.response.body.items.item[0]?.optional, null);
+  assert.equal(sanitized.response.body.items.item[0]?.ofclTelNo, "000-0000-0000");
+});
+
+test("parses the sanitized live KONEPS items-array shape as regression evidence", async () => {
+  const text = await liveFixture("bid-notice.json");
+  const parsed = JSON.parse(text) as {
+    response: {
+      header: { resultCode: unknown; resultMsg: unknown };
+      body: { items: Array<Record<string, unknown>>; pageNo: unknown; numOfRows: unknown; totalCount: unknown };
+    };
+  };
+  const report = inspectLiveShape(parsed);
+  assert.deepEqual(report.rootKeys, ["response"]);
+  assert.equal(report.headerPath, "$.response.header");
+  assert.equal(report.bodyPath, "$.response.body");
+  assert.equal(report.itemsPath, "$.response.body.items");
+  assert.equal(report.itemPath, "$.response.body.items");
+  assert.equal(report.itemKind, "array");
+  assert.equal(report.itemCount, 5);
+  assert.equal(extractLiveItems(parsed).length, 5);
+  assert.deepEqual(report.pagingTypes, { pageNo: "number", numOfRows: "number", totalCount: "number" });
+  assert.equal(typeof parsed.response.body.items[0]?.bidNtceNo, "string");
+  assert.equal(typeof parsed.response.body.items[0]?.bidNtceOrd, "string");
+  assert.ok("rsrvtnPrceReMkngMthdNm" in (parsed.response.body.items[0] ?? {}));
+  assert.doesNotMatch(text, /ServiceKey/iu);
+  assert.equal(parsed.response.body.items[0]?.ntceInsttOfclNm, "TEST_CONTACT");
+  assert.equal(parsed.response.body.items[0]?.ntceInsttOfclTelNo, "000-0000-0000");
+  assert.equal(parsed.response.body.items[0]?.ntceInsttOfclEmailAdrs, "redacted@example.invalid");
+});
+
+test("live verification arguments enforce historical, page, row, range, and fixture safety", () => {
+  const now = new Date("2026-08-13T09:00:00.000Z");
+  assert.throws(() => parseVerificationArguments(["--from", "202001011000", "--to", "202001011010"], now), /--historical/u);
+  assert.throws(() => parseVerificationArguments(["--page", "11"], now), /--page/u);
+  assert.throws(() => parseVerificationArguments(["--rows", "11"], now), /--rows/u);
+  assert.throws(() => parseVerificationArguments(["--fixture-name", "../private"], now), /--fixture-name/u);
+  assert.throws(() => parseVerificationArguments(["--from", "202608130900", "--to", "202608131501"], now), /360 minutes/u);
+  const args = parseVerificationArguments([
+    "--historical", "--execute", "--from", "202001011000", "--to", "202001011010",
+    "--page", "2", "--rows", "5", "--fixture-name", "bid-notice-2020",
+  ], now);
+  assert.deepEqual(args, {
+    execute: true,
+    historical: true,
+    from: "202001011000",
+    to: "202001011010",
+    pageNo: 2,
+    numOfRows: 5,
+    fixtureName: "bid-notice-2020",
+  });
+});
+
+test("pagination summary detects cross-page duplicates, total-count drift, and a short final page", () => {
+  const baseShape = inspectLiveShape({ response: { header: { resultCode: "00", resultMsg: "OK" }, body: { items: [{ bidNtceNo: "A", bidNtceOrd: "000" }], pageNo: 1, numOfRows: 2, totalCount: 3 } } });
+  const finalShape = { ...baseShape, itemCount: 1 };
+  const summary = summarizePagination([
+    { requestedPageNo: 1, returnedPageNo: 1, returnedNumOfRows: 2, totalCount: 3, identities: ["A|000", "B|000"], shape: { ...baseShape, itemCount: 2 } },
+    { requestedPageNo: 2, returnedPageNo: 2, returnedNumOfRows: 2, totalCount: 4, identities: ["B|000"], shape: finalShape },
+  ]);
+  assert.deepEqual(summary.pageItemCounts, [2, 1]);
+  assert.deepEqual(summary.totalCounts, [3, 4]);
+  assert.deepEqual(summary.duplicateIdentities, ["B|000"]);
+  assert.equal(summary.totalCountDrift, true);
+  assert.equal(summary.finalPageObserved, true);
+});
+
+test("Phase 3-E verification arguments require an explicit supported identity", () => {
+  assert.deepEqual(parsePhase3eArguments(["--kind", "item", "--bid-no", "20260814001", "--bid-ord", "000"]), {
+    kind: "item", bidNtceNo: "20260814001", bidNtceOrd: "000", execute: false,
+  });
+  assert.deepEqual(parsePhase3eArguments(["--kind", "basis", "--bid-no", "20260814001", "--execute"]), {
+    kind: "basis", bidNtceNo: "20260814001", bidNtceOrd: undefined, execute: true,
+  });
+  assert.throws(() => parsePhase3eArguments(["--kind", "item", "--bid-no", "20260814001"]), /--bid-ord/u);
+  assert.throws(() => parsePhase3eArguments(["--kind", "basis", "--bid-no", "bad&id"]), /safe identifier/u);
+  assert.throws(() => parsePhase3eArguments(["--kind", "other", "--bid-no", "20260814001"]), /--kind/u);
+});
+
+test("Phase 3-E endpoints accept only their documented identity query mode", () => {
+  assert.doesNotThrow(() => BID_ITEM_OPERATION.validate?.({ pageNo: 1, numOfRows: 5, type: "json", inqryDiv: "2", bidNtceNo: "A", bidNtceOrd: "000" }));
+  assert.doesNotThrow(() => BID_BASIS_AMOUNT_OPERATION.validate?.({ pageNo: 1, numOfRows: 5, type: "json", inqryDiv: "2", bidNtceNo: "A" }));
+  assert.throws(() => BID_ITEM_OPERATION.validate?.({ pageNo: 1, numOfRows: 5, type: "json", inqryDiv: "1" as "2", bidNtceNo: "A", bidNtceOrd: "000" }), /inqryDiv=2/u);
+  assert.throws(() => BID_BASIS_AMOUNT_OPERATION.validate?.({ pageNo: 1, numOfRows: 5, type: "json", inqryDiv: "2", bidNtceNo: "A B" }), /identifier/u);
 });

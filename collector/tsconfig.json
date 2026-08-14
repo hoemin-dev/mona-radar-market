@@ -13,5 +13,5 @@
     "declaration": true,
     "sourceMap": true
   },
-  "include": ["koneps/**/*.ts"]
+  "include": ["koneps/**/*.ts", "storage/**/*.ts", "normalization/**/*.ts"]
 }
