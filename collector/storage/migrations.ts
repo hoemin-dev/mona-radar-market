@@ -323,4 +323,58 @@ export const MIGRATIONS: readonly Migration[] = [{
     CREATE INDEX idx_work_item_retry ON collector_work_item(status,operation,created_at);
     CREATE INDEX idx_work_item_identity ON collector_work_item(operation,bid_ntce_no,bid_ntce_ord);
   `,
+}, {
+  version: 5,
+  name: "phase3g1_historical_backfill_operational_state",
+  sql: `
+    CREATE TABLE historical_backfill_job (
+      job_id TEXT PRIMARY KEY,
+      service TEXT NOT NULL,
+      query_basis TEXT NOT NULL,
+      start_boundary TEXT NOT NULL,
+      cutoff_boundary TEXT NOT NULL,
+      direction TEXT NOT NULL CHECK(direction='forward'),
+      chunk_minutes INTEGER NOT NULL CHECK(chunk_minutes>0),
+      status TEXT NOT NULL CHECK(status IN ('planned','running','paused','completed','completed_with_errors','failed','cancelled')),
+      successful_through TEXT,
+      stop_requested INTEGER NOT NULL DEFAULT 0 CHECK(stop_requested IN (0,1)),
+      created_at TEXT NOT NULL,
+      started_at TEXT,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT,
+      last_run_id TEXT REFERENCES collector_run(run_id),
+      error_summary TEXT,
+      CHECK(start_boundary < cutoff_boundary),
+      CHECK(successful_through IS NULL OR (successful_through >= start_boundary AND successful_through <= cutoff_boundary))
+    ) STRICT;
+    CREATE INDEX idx_historical_job_active ON historical_backfill_job(status,created_at);
+
+    CREATE TABLE historical_backfill_chunk (
+      chunk_id INTEGER PRIMARY KEY,
+      job_id TEXT NOT NULL REFERENCES historical_backfill_job(job_id) ON DELETE RESTRICT,
+      range_start TEXT NOT NULL,
+      range_end TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','running','succeeded','failed')),
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0),
+      started_at TEXT,
+      completed_at TEXT,
+      last_run_id TEXT REFERENCES collector_run(run_id),
+      error_category TEXT,
+      error_summary TEXT,
+      CHECK(range_start <= range_end),
+      UNIQUE(job_id,range_start,range_end)
+    ) STRICT;
+    CREATE INDEX idx_historical_chunk_resume ON historical_backfill_chunk(job_id,status,range_start);
+
+    CREATE TABLE collector_lease (
+      lease_name TEXT PRIMARY KEY CHECK(lease_name='market-collector'),
+      holder_token TEXT NOT NULL,
+      mode TEXT NOT NULL CHECK(mode IN ('manual','historical')),
+      job_id TEXT REFERENCES historical_backfill_job(job_id),
+      acquired_at TEXT NOT NULL,
+      heartbeat_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      CHECK((mode='historical' AND job_id IS NOT NULL) OR (mode='manual' AND job_id IS NULL))
+    ) STRICT;
+  `,
 }];

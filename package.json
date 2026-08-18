@@ -9,12 +9,16 @@
     "typecheck": "tsc --noEmit",
     "collector:typecheck": "tsc -p collector/tsconfig.json --noEmit",
     "collector:build": "tsc -p collector/tsconfig.json",
+    "runtime:prepare": "npm run collector:build && node tools/prepare-runtime.mjs",
+    "build:desktop": "npm run build && npm run runtime:prepare",
     "koneps:verify-live": "npm run collector:build && node dist-collector/koneps/live-verify.js",
     "koneps:verify-phase3e": "npm run collector:build && node dist-collector/koneps/phase3e-verify.js",
     "collector:manual": "npm run collector:build && node dist-collector/orchestration/cli.js",
+    "collector:backfill": "npm run collector:build && node dist-collector/orchestration/backfill-cli.js",
     "collector:inspect": "npm run collector:build && node dist-collector/orchestration/inspect.js",
-    "test": "npm run collector:build && node --test dist-collector/koneps/client.test.js dist-collector/storage/raw-persistence.test.js dist-collector/normalization/bid-notice.test.js dist-collector/normalization/phase3e.test.js dist-collector/orchestration/collector.test.js",
-    "tauri": "tauri"
+    "test": "npm run collector:build && node --test dist-collector/koneps/client.test.js dist-collector/storage/raw-persistence.test.js dist-collector/normalization/bid-notice.test.js dist-collector/normalization/phase3e.test.js dist-collector/orchestration/collector.test.js dist-collector/orchestration/historical-state.test.js",
+    "tauri": "tauri",
+    "tauri:build": "npm run build:desktop && tauri build"
   },
   "dependencies": { "@tauri-apps/api": "^2.8.0" },
   "devDependencies": { "@tauri-apps/cli": "^2.8.4", "@types/node": "^24.3.0", "typescript": "^5.9.2", "vite": "^7.1.3" }

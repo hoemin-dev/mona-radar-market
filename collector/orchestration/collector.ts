@@ -21,6 +21,7 @@ export interface CollectorOptions {
   readonly appVersion?:string; readonly parserVersion?:string; readonly now?:()=>Date;
   readonly isCancelled?:()=>boolean; readonly onProgress?:(progress:CollectorProgress)=>void;
   readonly maxApiCalls?:number; readonly maxDiscoveredNotices?:number;
+  readonly advanceIncrementalCheckpoint?:boolean; readonly drainEnrichment?:boolean;
 }
 export interface CollectorResult { readonly runId:string; readonly status:"succeeded"|"partial"|"failed"|"cancelled"; readonly checkpoint:string|null; readonly noticesDiscovered:number; readonly enrichmentCompleted:number; readonly errors:number; }
 
@@ -81,7 +82,7 @@ export async function runManualCollection(options:CollectorOptions):Promise<Coll
     }
   };
 
-  await processWork();
+  if(options.drainEnrichment!==false) await processWork();
   for(const range of chunks(plan.effectiveRange)){
     if(cancelled()) break;
     try{
@@ -102,11 +103,11 @@ export async function runManualCollection(options:CollectorOptions):Promise<Coll
           seen+=saved.actualItemCount; page+=1; if(page>MAX_PAGES_PER_CHUNK) throw new Error("MAX_PAGE_LIMIT_EXCEEDED");
         }catch(error){ persistError(database,discoveryRun,BID_NOTICE_OPERATION,page,params,error,iso(now)); throw error; }
       }while(seen<(total??0));
-      advanceCheckpoint(database,range.end,runId,iso(now)); lastCheckpoint=range.end;
+      if(options.advanceIncrementalCheckpoint!==false) advanceCheckpoint(database,range.end,runId,iso(now)); lastCheckpoint=range.end;
     }catch(error){ errors+=1; discoveryFailed=true; const safe=safeError(error); setOperation(database,discoveryRun,"failed",iso(now),safe.category); break; }
   }
   if(!discoveryFailed&&!cancelled()) setOperation(database,discoveryRun,"succeeded",iso(now));
-  await processWork();
+  if(options.drainEnrichment!==false) await processWork();
   const failedFor=(operation:string)=>Number((database.prepare("SELECT count(*) n FROM collector_work_item WHERE last_attempt_run_id=? AND operation=? AND status='failed'").get(runId,operation) as {n:number}).n);
   setOperation(database,itemRun,cancelled()?"cancelled":failedFor(ITEM_NAME)?"failed":"succeeded",iso(now));
   setOperation(database,basisRun,cancelled()?"cancelled":failedFor(BASIS_NAME)?"failed":"succeeded",iso(now));

@@ -1,7 +1,8 @@
 export type KonepsService =
   | "BidPublicInfoService"
   | "ScsbidInfoService"
-  | "CntrctInfoService";
+  | "CntrctInfoService"
+  | "ThngListInfoService02";
 
 export interface KonepsOperation<TParams extends KonepsRequestParams = KonepsRequestParams> {
   readonly service: KonepsService;
@@ -36,6 +37,13 @@ export interface BidItemIdentityParams extends KonepsRequestParams {
 export interface BidBasisAmountIdentityParams extends KonepsRequestParams {
   readonly inqryDiv: "2";
   readonly bidNtceNo: string;
+}
+
+export interface DetailedProductClassificationSearchParams extends KonepsRequestParams {
+  readonly dtilPrdctClsfcNoBgnNo?: string;
+  readonly dtilPrdctClsfcNoEndNo?: string;
+  readonly dtilPrdctClsfcNoNm?: string;
+  readonly dtilPrdctClsfcNoEngNm?: string;
 }
 
 export interface KonepsEnvelope {

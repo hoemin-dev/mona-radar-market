@@ -46,7 +46,7 @@ test("migrates an existing v1 database through current schema without changing R
 
 test("fresh database applies all migrations", () => {
   const database = openMarketDatabase(":memory:");
-  assert.equal(CURRENT_SCHEMA_VERSION, 4);
+  assert.equal(CURRENT_SCHEMA_VERSION, 5);
   assert.ok(database.prepare("SELECT name FROM sqlite_master WHERE name='bid_notice_revision'").get());
   database.close();
 });

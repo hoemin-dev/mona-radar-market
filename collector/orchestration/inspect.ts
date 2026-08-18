@@ -29,7 +29,9 @@ function main():void{
       unsafeStoredUrl:(db.prepare("SELECT count(*) count FROM api_call WHERE instr(lower(redacted_url),'servicekey=')>0 AND instr(redacted_url,'[REDACTED]')=0").get() as {count:number}).count,
       serviceKeyInMetadata:(db.prepare("SELECT count(*) count FROM api_call WHERE instr(lower(request_metadata_json),'servicekey')>0").get() as {count:number}).count,
     };
-    console.log(JSON.stringify({databasePath:path,exists:true,latestRun:latest??null,operations,checkpoints,work,counts,integrity},null,2));
+    const hasHistorical=!!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='historical_backfill_job'").get();
+    const historical=hasHistorical?{jobs:db.prepare("SELECT job_id,status,start_boundary,cutoff_boundary,successful_through,stop_requested,updated_at,error_summary FROM historical_backfill_job ORDER BY created_at DESC").all(),activeLease:db.prepare("SELECT lease_name,mode,job_id,acquired_at,heartbeat_at,expires_at FROM collector_lease").get()??null}:{jobs:[],activeLease:null,migrationPending:true};
+    console.log(JSON.stringify({databasePath:path,exists:true,latestRun:latest??null,operations,checkpoints,work,counts,integrity,historical},null,2));
   }finally{db.close();}
 }
 main();

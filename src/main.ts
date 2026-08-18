@@ -1,59 +1,21 @@
 import "./styles.css";
-import "./search.css";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-type View = "collector" | "search" | "dash" | "analysis";
-const app = document.querySelector<HTMLDivElement>("#app")!;
-let view: View = "collector";
-
-function setupWindowChrome() {
-  if (!("__TAURI_INTERNALS__" in window)) return;
-  const appWindow = getCurrentWindow();
-  const titlebar = document.querySelector<HTMLElement>("#window-titlebar");
-  const minimize = document.querySelector<HTMLButtonElement>("#window-minimize");
-  const maximize = document.querySelector<HTMLButtonElement>("#window-maximize");
-  const maximizeIcon = document.querySelector<HTMLElement>("#window-maximize-icon");
-  const close = document.querySelector<HTMLButtonElement>("#window-close");
-  if (!titlebar || !minimize || !maximize || !maximizeIcon || !close) return;
-  const updateMaximizeState = async () => {
-    const isMaximized = await appWindow.isMaximized();
-    maximizeIcon.classList.toggle("is-restore", isMaximized);
-    maximize.ariaLabel = isMaximized ? "복원" : "최대화";
-  };
-  minimize.addEventListener("click", () => void appWindow.minimize());
-  maximize.addEventListener("click", () => void appWindow.toggleMaximize().then(updateMaximizeState));
-  close.addEventListener("click", () => void appWindow.close());
-  titlebar.addEventListener("dblclick", (event) => {
-    if ((event.target as HTMLElement).closest(".window-controls")) return;
-    void appWindow.toggleMaximize().then(updateMaximizeState);
-  });
-  void updateMaximizeState();
-  void appWindow.onResized(() => void updateMaximizeState());
-}
-
-const collector = () => `
-  <section class="page">
-    <header><p class="eyebrow">KONEPS / 나라장터 API COLLECTOR</p><h2>Collector</h2><p>나라장터 OpenAPI 기반 수집기가 연결될 독립 영역입니다.</p></header>
-    <div class="status-grid">
-      <article><span>Collector 상태</span><strong>NOT IMPLEMENTED</strong><small>Market Collector 준비 중</small></article>
-      <article><span>데이터 소스</span><strong>KONEPS</strong><small>나라장터 OpenAPI</small></article>
-      <article><span>수집 방식</span><strong>HTTP REST API</strong><small>JSON/XML 응답</small></article>
-      <article><span>저장소</span><strong>미정</strong><small>Market DB 설계 예정</small></article>
-    </div>
-    <div class="workspace"><div class="actions"><button class="primary" disabled>수집 시작</button><button disabled>중단</button></div></div>
-    <div class="log"><div class="log-head"><h3>작업 로그</h3><span>최근 이벤트</span></div><div class="empty">Collector not implemented</div></div>
-  </section>`;
-
-const placeholder = (name: string, description: string) => `
-  <section class="page centered"><p class="eyebrow">MONA RADAR / MARKET</p><h2>${name}</h2><div class="orb"></div><h3>Ready for Market data</h3><p>${description}</p></section>`;
-
-function render() {
-  const content = view === "collector" ? collector()
-    : view === "search" ? placeholder("Search", "향후 Market DB 검색 기능이 연결됩니다.")
-    : view === "dash" ? placeholder("Dash", "공공조달 시장 현황 대시보드가 연결됩니다.")
-    : placeholder("Analysis", "공공조달 시장 분석 기능이 연결됩니다.");
-  app.innerHTML = `<aside><div class="brand"><span>MR</span><div><b>MONA RADAR</b><small>Market</small></div></div><nav>${(["collector", "search", "dash", "analysis"] as View[]).map((item) => `<button data-view="${item}" class="${item === view ? "active" : ""}">${item[0]!.toUpperCase() + item.slice(1)}</button>`).join("")}</nav><footer>LOCAL-FIRST<br><span>KONEPS market intelligence</span></footer></aside><main>${content}</main>`;
-  document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => button.addEventListener("click", () => { view = button.dataset.view as View; render(); }));
-  setupWindowChrome();
-}
-render();
+type View="collector"|"search"|"dash"|"analysis"; type Row=Record<string,unknown>;
+const app=document.querySelector<HTMLDivElement>("#app")!; let view:View="dash", rows:Row[]=[], selected:Row|undefined, summary:Row={}, status:Row={}, logs:string[]=[];
+const esc=(v:unknown)=>String(v??"").replace(/[&<>'"]/g,x=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[x]!)); const money=(x:unknown)=>x==null?"—":Number(x).toLocaleString("ko-KR")+"원";
+function chrome(){if(!("__TAURI_INTERNALS__" in window))return;const w=getCurrentWindow();document.querySelector("#window-minimize")?.addEventListener("click",()=>void w.minimize());document.querySelector("#window-maximize")?.addEventListener("click",()=>void w.toggleMaximize());document.querySelector("#window-close")?.addEventListener("click",()=>void w.close());}
+const nav=()=>`<aside><div class="brand"><span>MR</span><div><b>MONA RADAR</b><small>Market</small></div></div><nav>${(["dash","search","analysis","collector"] as View[]).map(v=>`<button data-view="${v}" class="${view===v?"active":""}">${v.charAt(0).toUpperCase()+v.slice(1)}</button>`).join("")}</nav><footer>LOCAL-FIRST<br><span>KONEPS market intelligence</span></footer></aside>`;
+const dash=()=>`<section class="page"><header><p class="eyebrow">LOCAL MARKET INTELLIGENCE</p><h2>Dash</h2><p>로컬 SQLite에 저장된 실제 나라장터 수집 현황입니다.</p></header><div class="status-grid"><article><span>공고</span><strong>${Number(summary.notices??0).toLocaleString()}</strong><small>정규화된 bid_notice</small></article><article><span>구매대상물품</span><strong>${Number(summary.items??0).toLocaleString()}</strong><small>bid_item</small></article><article><span>기초금액</span><strong>${Number(summary.basisAmounts??0).toLocaleString()}</strong><small>bid_basis_amount</small></article><article><span>Checkpoint</span><strong>${esc(summary.checkpoint??"—")}</strong><small>마지막 완전 처리 범위</small></article></div><div class="log"><div class="log-head"><h3>최근 수집 실행</h3><span>SQLite evidence</span></div>${((summary.recentRuns as Row[]??[]).map(r=>`<div class="run"><b>${esc(r.status)}</b><span>${esc(r.startedAt)}</span><span>+${esc(r.inserted)} / △${esc(r.updated)} / =${esc(r.unchanged)}</span></div>`).join("")||'<div class="empty">수집 실행 이력이 없습니다.</div>')}</div></section>`;
+const search=()=>`<section class="page"><header><p class="eyebrow">BID NOTICE INDEX</p><h2>Search</h2><p>공고명·공고기관·수요기관으로 로컬 데이터를 검색합니다.</p></header><div class="searchbox"><input id="query" placeholder="공고명 또는 기관명"><button id="search-go" class="primary">검색</button></div><div class="table"><div class="tr th"><span>공고</span><span>기관</span><span>게시 / 마감</span><span>추정가격</span></div>${rows.map((r,i)=>`<button class="tr" data-row="${i}"><span><b>${esc(r.name)}</b><small>${esc(r.bidNo)}-${esc(r.bidOrd)}</small></span><span>${esc(r.institution)}</span><span>${esc(r.postedAt)}<small>${esc(r.closeAt)}</small></span><span>${money(r.estimatedPrice)}</span></button>`).join("")||'<div class="empty">검색 결과가 없습니다. 수집 후 다시 검색하세요.</div>'}</div>${selected?detail():""}</section>`;
+const detail=()=>`<article class="detail"><button id="detail-close">닫기</button><h3>${esc(selected?.name)}</h3><p>${esc(selected?.institution)} · ${esc(selected?.demandInstitution)}</p><div id="detail-body">세부 정보를 불러오는 중입니다.</div></article>`;
+const analysis=()=>`<section class="page"><header><p class="eyebrow">EVIDENCE-BASED ANALYSIS</p><h2>Analysis</h2><p>현재 로컬 데이터의 가격·공고 분포를 바로 확인합니다.</p></header><div class="status-grid"><article><span>최근 공고 기준</span><strong>${esc(summary.latestNotice??"—")}</strong><small>notice_posted_local</small></article><article><span>정규화 원본</span><strong>${Number(summary.notices??0)+Number(summary.items??0)+Number(summary.basisAmounts??0)}</strong><small>공고·물품·금액 레코드</small></article></div><div class="empty">상세 분석은 Search 결과와 수집 evidence를 바탕으로 확장됩니다.</div></section>`;
+const collector=()=>`<section class="page"><header><p class="eyebrow">KONEPS API COLLECTOR</p><h2>Collector</h2><p>API 키는 앱 화면·로그·SQLite에 저장하지 않으며 실행 환경의 KONEPS_SERVICE_KEY만 사용합니다.</p></header><div class="status-grid"><article><span>저장소</span><strong>${status.ready?"READY":"EMPTY"}</strong><small>${esc(status.checkpoint??"초기 수집 필요")}</small></article><article><span>Historical job</span><strong>${esc((status.job as Row|undefined)?.status??"—")}</strong><small>${esc((status.job as Row|undefined)?.through??"작업 없음")}</small></article></div><div class="workspace"><div class="collector-form"><label>초기 수집 시작일<input id="initial-start" type="date"></label><label>종료일<input id="initial-end" type="date"></label><button id="start-initial" class="primary">Initial Start</button><button id="start-incremental">Incremental Start</button><button id="stop-collector">Stop</button></div><p class="hint">Historical backfill은 기존 job ID를 입력해 한 chunk씩 안전하게 Resume합니다.</p><div class="collector-form"><label>Historical job ID<input id="historical-job" placeholder="job_id"></label><button id="start-historical">Historical Resume</button></div></div><div class="log"><div class="log-head"><h3>작업 로그</h3><span>redacted runtime events</span></div><pre>${esc(logs.join("\n")||"수집기가 대기 중입니다.")}</pre></div></section>`;
+function render(){app.innerHTML=`${nav()}<main>${view==="dash"?dash():view==="search"?search():view==="analysis"?analysis():collector()}</main>`;document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach(b=>b.onclick=()=>{view=b.dataset.view as View;render();void refresh();});document.querySelector("#search-go")?.addEventListener("click",()=>void doSearch());document.querySelectorAll<HTMLButtonElement>("[data-row]").forEach(b=>b.onclick=()=>{selected=rows[Number(b.dataset.row)];render();void loadDetail();});document.querySelector("#detail-close")?.addEventListener("click",()=>{selected=undefined;render();});document.querySelector("#start-initial")?.addEventListener("click",()=>void start("initial"));document.querySelector("#start-incremental")?.addEventListener("click",()=>void start("incremental"));document.querySelector("#start-historical")?.addEventListener("click",()=>void start("historical"));document.querySelector("#stop-collector")?.addEventListener("click",()=>void invoke("stop_collection"));chrome();}
+async function refresh(){try{summary=await invoke<Row>("dashboard_summary");}catch{summary={};}status=await invoke<Row>("collector_status");if(view==="dash"||view==="analysis"||view==="collector")render();}
+async function doSearch(){const q=(document.querySelector<HTMLInputElement>("#query")?.value??"");try{rows=(await invoke<{rows:Row[]}>("search_notices",{query:q})).rows;}catch(e){logs.unshift(String(e));}selected=undefined;render();}
+async function loadDetail(){if(!selected)return;try{const d=await invoke<Row>("notice_detail",{bidNo:selected.bidNo,bidOrd:selected.bidOrd});const n=d.notice as Row, items=d.items as Row[], b=d.basis as Row|undefined;const host=document.querySelector("#detail-body");if(host)host.innerHTML=`<dl><dt>마감</dt><dd>${esc(n.bidClose)}</dd><dt>추정가격</dt><dd>${money(n.estimatedPrice)}</dd><dt>기초금액</dt><dd>${money(b?.basisAmount)}</dd></dl><h4>구매대상물품</h4>${items.map(i=>`<p>${esc(i.detailClassName||i.className)} · ${esc(i.quantity)} ${esc(i.unit)}</p>`).join("")||"등록된 물품이 없습니다."}`;}catch(e){const h=document.querySelector("#detail-body");if(h)h.textContent=String(e);}}
+async function start(mode:string){try{const start=document.querySelector<HTMLInputElement>("#initial-start")?.value,end=document.querySelector<HTMLInputElement>("#initial-end")?.value,jobId=document.querySelector<HTMLInputElement>("#historical-job")?.value;await invoke("start_collection",{mode,start,end,jobId});logs.unshift(`${mode} collector started`);render();}catch(e){logs.unshift(`ERROR: ${String(e)}`);render();}}
+void listen<unknown>("collector-event",e=>{logs.unshift(JSON.stringify(e.payload));logs=logs.slice(0,100);if(view==="collector")render();void refresh();});render();void refresh();

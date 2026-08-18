@@ -4,7 +4,9 @@ import { DatabaseSync } from "node:sqlite";
 import { MIGRATIONS } from "./migrations.js";
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
-export const DEFAULT_MARKET_DB_PATH = resolve("runtime", "market", "mona-radar-market.sqlite3");
+// Desktop launches pass this path only to the private Node sidecar.  Keeping the
+// default makes the collector CLI convenient during development.
+export const DEFAULT_MARKET_DB_PATH = process.env.MARKET_DB_PATH ?? resolve("runtime", "market", "mona-radar-market.sqlite3");
 
 export function openMarketDatabase(path = DEFAULT_MARKET_DB_PATH): DatabaseSync {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });

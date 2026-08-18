@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { KonepsClient } from "./client.js";
 import { loadKonepsConfig, type KonepsClientConfig } from "./config.js";
-import { BID_BASIS_AMOUNT_OPERATION, BID_ITEM_OPERATION, BID_NOTICE_SEARCH_OPERATION } from "./endpoints.js";
+import { BID_BASIS_AMOUNT_OPERATION, BID_ITEM_OPERATION, BID_NOTICE_SEARCH_OPERATION, DETAILED_PRODUCT_CLASSIFICATION_SEARCH_OPERATION } from "./endpoints.js";
 import { KonepsError } from "./errors.js";
 import { extractLiveItems, inspectLiveShape, sanitizeLiveFixture } from "./live-shape.js";
 import { parseVerificationArguments, summarizePagination } from "./verification.js";
@@ -261,4 +261,29 @@ test("Phase 3-E endpoints accept only their documented identity query mode", () 
   assert.doesNotThrow(() => BID_BASIS_AMOUNT_OPERATION.validate?.({ pageNo: 1, numOfRows: 5, type: "json", inqryDiv: "2", bidNtceNo: "A" }));
   assert.throws(() => BID_ITEM_OPERATION.validate?.({ pageNo: 1, numOfRows: 5, type: "json", inqryDiv: "1" as "2", bidNtceNo: "A", bidNtceOrd: "000" }), /inqryDiv=2/u);
   assert.throws(() => BID_BASIS_AMOUNT_OPERATION.validate?.({ pageNo: 1, numOfRows: 5, type: "json", inqryDiv: "2", bidNtceNo: "A B" }), /identifier/u);
+});
+
+test("detailed product classification endpoint accepts documented search conditions", () => {
+  assert.doesNotThrow(() => DETAILED_PRODUCT_CLASSIFICATION_SEARCH_OPERATION.validate?.({
+    pageNo: 1,
+    numOfRows: 5,
+    dtilPrdctClsfcNoBgnNo: "1013160101",
+    dtilPrdctClsfcNoEndNo: "1013160101",
+  }));
+  assert.doesNotThrow(() => DETAILED_PRODUCT_CLASSIFICATION_SEARCH_OPERATION.validate?.({
+    pageNo: 1,
+    numOfRows: 5,
+    dtilPrdctClsfcNoNm: "애완동물사육장",
+  }));
+  assert.throws(() => DETAILED_PRODUCT_CLASSIFICATION_SEARCH_OPERATION.validate?.({
+    pageNo: 1,
+    numOfRows: 5,
+    dtilPrdctClsfcNoBgnNo: "10131601",
+  }), /10-digit/u);
+  assert.throws(() => DETAILED_PRODUCT_CLASSIFICATION_SEARCH_OPERATION.validate?.({
+    pageNo: 1,
+    numOfRows: 5,
+    dtilPrdctClsfcNoBgnNo: "1013160199",
+    dtilPrdctClsfcNoEndNo: "1013160100",
+  }), /must not exceed/u);
 });

@@ -6,6 +6,8 @@ import { DEFAULT_MARKET_DB_PATH, openMarketDatabase } from "../storage/database.
 import { runManualCollection } from "./collector.js";
 import { assertLongRangeAllowed, chunkCount, initialDateTimeRange, initialRange, incrementalRange, incrementalSmokeRange, INCREMENTAL_OVERLAP_MINUTES, DISCOVERY_CHUNK_MINUTES, type CollectionPlan } from "./planner.js";
 import { checkpoint } from "./state.js";
+import { acquireCollectorLease, releaseCollectorLease } from "./historical-state.js";
+import { randomUUID } from "node:crypto";
 
 export interface ManualCliArgs { readonly mode:"initial"|"incremental"; readonly start?:string; readonly end?:string; readonly startDatetime?:string; readonly endDatetime?:string; readonly smokeStartDatetime?:string; readonly smokeEndDatetime?:string; readonly execute:boolean; readonly allowLongRange:boolean; readonly databasePath:string; readonly smokeMaxNotices?:number; readonly smokeMaxApiCalls?:number; }
 function value(argv:readonly string[],name:string):string|undefined { const i=argv.indexOf(name); if(i<0)return undefined; const v=argv[i+1]; if(!v||v.startsWith("--"))throw new Error(`${name} requires a value`); return v; }
@@ -41,9 +43,9 @@ async function main():Promise<void>{
   const args=parseManualCliArgs(process.argv.slice(2)); const plan=buildCliPlan(args);
   console.log(JSON.stringify({dryRun:!args.execute,databaseMutation:args.execute,apiCalls:args.execute?`bounded by ${args.smokeMaxApiCalls??"collection scope"}`:0,databasePath:args.databasePath,smokeLimits:args.smokeMaxNotices===undefined?null:{maxNotices:args.smokeMaxNotices,maxApiCalls:args.smokeMaxApiCalls},...plan},null,2));
   if(!args.execute)return;
-  const loaded=loadKonepsConfig();
   const database=openMarketDatabase(args.databasePath);
-  try{const config=args.smokeMaxApiCalls===undefined?loaded:{...loaded,maxRetries:0};const result=await runManualCollection({database,client:new KonepsClient({config}),plan,maxApiCalls:args.smokeMaxApiCalls,maxDiscoveredNotices:args.smokeMaxNotices,onProgress:(p)=>console.log(JSON.stringify({progress:p}))}); console.log(JSON.stringify(result,null,2));}
-  finally{database.close();}
+  const token=randomUUID();
+  try{acquireCollectorLease(database,{token,mode:"manual",now:new Date()});const loaded=loadKonepsConfig();const config=args.smokeMaxApiCalls===undefined?loaded:{...loaded,maxRetries:0};const result=await runManualCollection({database,client:new KonepsClient({config}),plan,maxApiCalls:args.smokeMaxApiCalls,maxDiscoveredNotices:args.smokeMaxNotices,onProgress:(p)=>console.log(JSON.stringify({progress:p}))}); console.log(JSON.stringify(result,null,2));}
+  finally{try{releaseCollectorLease(database,token);}catch{}database.close();}
 }
 if(process.argv[1]?.endsWith("cli.js"))main().catch((error:unknown)=>{console.error(error instanceof Error?error.message:"Manual collector failed");process.exitCode=1;});

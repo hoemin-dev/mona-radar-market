@@ -17,6 +17,7 @@ export interface KonepsClientOptions {
   readonly sleep?: (milliseconds: number) => Promise<void>;
   readonly random?: () => number;
   readonly now?: () => Date;
+  readonly pacer?: { beforeAttempt(): Promise<void> };
 }
 
 export interface KonepsClientCounters {
@@ -81,6 +82,7 @@ export class KonepsClient {
   readonly #sleep: (milliseconds: number) => Promise<void>;
   readonly #random: () => number;
   readonly #now: () => Date;
+  readonly #pacer?: { beforeAttempt(): Promise<void> };
   #requestCount = 0;
   #retryCount = 0;
 
@@ -90,6 +92,7 @@ export class KonepsClient {
     this.#sleep = options.sleep ?? defaultSleep;
     this.#random = options.random ?? Math.random;
     this.#now = options.now ?? (() => new Date());
+    this.#pacer = options.pacer;
   }
 
   get counters(): KonepsClientCounters {
@@ -120,6 +123,7 @@ export class KonepsClient {
     });
 
     while (attemptCount <= this.#config.maxRetries) {
+      await this.#pacer?.beforeAttempt();
       attemptCount += 1;
       this.#requestCount += 1;
       const controller = new AbortController();
