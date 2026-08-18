@@ -1,4 +1,5 @@
 import { KonepsError } from "./errors.js";
+import { loadDevelopmentKonepsEnvironment } from "./environment.js";
 
 export type ServiceKeyMode = "preserve" | "encode";
 
@@ -15,6 +16,7 @@ export const DEFAULT_MAX_RETRIES = 2;
 export const DEFAULT_BASE_BACKOFF_MS = 250;
 
 export function loadKonepsConfig(env: NodeJS.ProcessEnv = process.env): KonepsClientConfig {
+  if (env === process.env) loadDevelopmentKonepsEnvironment(env);
   const serviceKey = env.KONEPS_SERVICE_KEY?.trim();
   if (!serviceKey) {
     throw new KonepsError("configuration", "KONEPS_SERVICE_KEY is not configured");

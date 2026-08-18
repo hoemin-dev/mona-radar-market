@@ -42,9 +42,22 @@ fn collector_status(app:AppHandle)->Result<Value,String>{match connection(&app){
 
 fn runtime_dir(app:&AppHandle)->Result<PathBuf,String>{if cfg!(debug_assertions){Ok(std::env::current_dir().map_err(|e|e.to_string())?.join("runtime"))}else{Ok(app.path().resource_dir().map_err(|e|e.to_string())?.join("runtime"))}}
 #[tauri::command]
+fn search_collection_targets(app:AppHandle,query:String)->Result<Value,String>{
+ let query=query.trim();
+ if query.is_empty()||query.chars().count()>100{return Err("세부품명 또는 8/10자리 번호를 입력하세요.".into())}
+ let runtime=runtime_dir(&app)?;
+ let mut command=Command::new(runtime.join("node.exe"));
+ command.arg("collector/orchestration/target-search-cli.js").arg(query).current_dir(&runtime).stdin(Stdio::null()).stderr(Stdio::null());
+ #[cfg(windows)]{use std::os::windows::process::CommandExt;command.creation_flags(0x08000000);}
+ let output=command.output().map_err(|_|"Target 검색기를 실행할 수 없습니다.".to_string())?;
+ if !output.status.success(){return Err("Target 검색기가 정상 종료되지 않았습니다.".into())}
+ let stdout=String::from_utf8(output.stdout).map_err(|_|"Target 검색 응답을 읽을 수 없습니다.".to_string())?;
+ serde_json::from_str(stdout.trim()).map_err(|_|"Target 검색 응답 형식이 올바르지 않습니다.".to_string())
+}
+#[tauri::command]
 fn start_collection(app:AppHandle,state:State<CollectorState>,mode:String,start:Option<String>,end:Option<String>,job_id:Option<String>)->Result<(),String>{let mut guard=state.0.lock().map_err(|_|"collector state lock failed")?;if guard.as_mut().and_then(|c|c.try_wait().ok()).is_none()&&guard.is_some(){return Err("수집기가 이미 실행 중입니다.".into())}let runtime=runtime_dir(&app)?;let db=db_path(&app)?;let mut args=vec!["collector/orchestration/cli.js".to_string()];if mode=="historical"{args[0]="collector/orchestration/backfill-cli.js".into();args.push("run".into());args.extend(["--job".into(),job_id.ok_or("Historical job ID가 필요합니다.")?,"--max-chunks".into(),"1".into(),"--max-api-calls".into(),"20".into(),"--execute".into()]);}else{args.push(mode.clone());if mode=="initial"{args.extend(["--start".into(),start.ok_or("시작일이 필요합니다.")?,"--end".into(),end.ok_or("종료일이 필요합니다.")?]);}args.push("--execute".into());}let mut command=Command::new(runtime.join("node.exe"));command.args(args).current_dir(&runtime).env("MARKET_DB_PATH",db).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());#[cfg(windows)]{use std::os::windows::process::CommandExt;command.creation_flags(0x08000000);}let mut child=command.spawn().map_err(|e|format!("collector start failed: {e}"))?;if let Some(out)=child.stdout.take(){let handle=app.clone();std::thread::spawn(move||{use std::io::{BufRead,BufReader};for line in BufReader::new(out).lines().map_while(Result::ok){let event=serde_json::from_str::<Value>(&line).unwrap_or_else(|_|json!({"type":"log","message":line}));let _=handle.emit("collector-event",event);}});}if let Some(err)=child.stderr.take(){let handle=app.clone();std::thread::spawn(move||{use std::io::{BufRead,BufReader};for line in BufReader::new(err).lines().map_while(Result::ok){if !line.contains("ServiceKey"){let _=handle.emit("collector-event",json!({"type":"error","message":line}));}}});}*guard=Some(child);Ok(())}
 #[tauri::command]
 fn stop_collection(state:State<CollectorState>)->Result<(),String>{let mut guard=state.0.lock().map_err(|_|"collector state lock failed")?;if let Some(child)=guard.as_mut(){child.kill().map_err(|e|e.to_string())?;}Ok(())}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run(){tauri::Builder::default().manage(CollectorState(Mutex::new(None))).invoke_handler(tauri::generate_handler![dashboard_summary,search_notices,notice_detail,collector_status,start_collection,stop_collection]).run(tauri::generate_context!()).expect("error while running Tauri application");}
+pub fn run(){tauri::Builder::default().manage(CollectorState(Mutex::new(None))).invoke_handler(tauri::generate_handler![dashboard_summary,search_notices,notice_detail,collector_status,search_collection_targets,start_collection,stop_collection]).run(tauri::generate_context!()).expect("error while running Tauri application");}

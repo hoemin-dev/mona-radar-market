@@ -3,6 +3,8 @@ export { loadKonepsConfig } from "./config.js";
 export { BID_BASIS_AMOUNT_OPERATION, BID_ITEM_OPERATION, BID_NOTICE_SEARCH_OPERATION, DETAILED_PRODUCT_CLASSIFICATION_SEARCH_OPERATION, KONEPS_SERVICE_ENDPOINTS } from "./endpoints.js";
 export { KonepsError } from "./errors.js";
 export { extractKonepsEnvelope } from "./envelope.js";
+export { loadDevelopmentKonepsEnvironment } from "./environment.js";
+export { planCollectorTargetSearch, searchCollectorTargets } from "./target-search.js";
 export { extractLiveItems, inspectLiveShape, sanitizeLiveFixture } from "./live-shape.js";
 export { parseVerificationArguments, summarizePagination } from "./verification.js";
 export { redactKonepsUrl, redactSecrets } from "./redaction.js";
