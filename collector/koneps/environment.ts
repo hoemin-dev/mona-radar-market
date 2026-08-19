@@ -35,7 +35,9 @@ export function loadDevelopmentKonepsEnvironment(
   env: NodeJS.ProcessEnv = process.env,
   cwd: string = process.cwd(),
 ): void {
-  const root = projectRoot(cwd);
+  const root = env.MARKET_PROJECT_ROOT
+    ? projectRoot(env.MARKET_PROJECT_ROOT)
+    : projectRoot(cwd);
   if (!root) return;
   const path = join(root, ".env");
   if (!existsSync(path)) return;
