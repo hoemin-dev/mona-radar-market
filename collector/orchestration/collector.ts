@@ -16,14 +16,16 @@ export const INITIAL_RANGE_REQUIRED="INITIAL_RANGE_REQUIRED";
 
 export interface CollectorClient { request(operation:typeof BID_NOTICE_SEARCH_OPERATION|typeof BID_ITEM_OPERATION|typeof BID_BASIS_AMOUNT_OPERATION,params:any):Promise<KonepsResponse>; }
 export interface CollectorProgress { readonly operation:string; readonly range?:{start:string;end:string}; readonly page?:number; readonly noticesDiscovered:number; readonly enrichmentCompleted:number; readonly errors:number; }
+export interface CollectorFailureDiagnostic { readonly httpStatus:number|null; readonly resultCode:string|null; readonly resultMsg:string|null; readonly category:string; readonly operation:string; readonly range:{start:string;end:string}; }
 export interface CollectorOptions {
   readonly database:DatabaseSync; readonly client:CollectorClient; readonly plan:CollectionPlan;
   readonly appVersion?:string; readonly parserVersion?:string; readonly now?:()=>Date;
   readonly isCancelled?:()=>boolean; readonly onProgress?:(progress:CollectorProgress)=>void;
   readonly maxApiCalls?:number; readonly maxDiscoveredNotices?:number;
   readonly advanceIncrementalCheckpoint?:boolean; readonly drainEnrichment?:boolean;
+  readonly detailedProductClassNo?:string;
 }
-export interface CollectorResult { readonly runId:string; readonly status:"succeeded"|"partial"|"failed"|"cancelled"; readonly checkpoint:string|null; readonly noticesDiscovered:number; readonly enrichmentCompleted:number; readonly errors:number; }
+export interface CollectorResult { readonly runId:string; readonly status:"succeeded"|"partial"|"failed"|"cancelled"; readonly checkpoint:string|null; readonly noticesDiscovered:number; readonly enrichmentCompleted:number; readonly errors:number; readonly failure?:CollectorFailureDiagnostic; }
 
 function iso(now:()=>Date):string{return now().toISOString();}
 function actionCount(database:DatabaseSync,runId:string,operationRunId:string,action:string):void {
@@ -45,6 +47,7 @@ function persistError(database:DatabaseSync,operationRunId:string,operation:stri
   persistFailedCall(database,{callId:newId("failed"),operationRunId,service:BID_NOTICE_SERVICE,operation,requestedAt:error.metadata?.startedAt??at,completedAt:error.metadata?.finishedAt,durationMs:error.metadata?.durationMs,httpStatus:error.metadata?.httpStatus,resultCode:error.metadata?.resultCode,resultMsg:error.metadata?.resultMsg,pageNo:page,numOfRows:Number(params.numOfRows),requestMetadata:params,requestUrl:error.metadata?.redactedUrl??"koneps://request-not-created",errorCategory:error.category,parseStatus:error.category==="parse"||error.category==="structure"?"failed":"not_attempted"});
 }
 function safeError(error:unknown):{category:string;message:string}{ return error instanceof KonepsError?{category:error.category,message:error.message}:{category:"normalization",message:error instanceof Error?error.message:"Collector error"}; }
+export function collectorFailureDiagnostic(error:unknown,operation:string,range:{start:string;end:string}):CollectorFailureDiagnostic {const metadata=error instanceof KonepsError?error.metadata:undefined;return {httpStatus:metadata?.httpStatus??null,resultCode:metadata?.resultCode??null,resultMsg:metadata?.resultMsg??null,category:error instanceof KonepsError?error.category:"normalization",operation,range};}
 function setOperation(database:DatabaseSync,id:string,status:"succeeded"|"failed"|"cancelled",at:string,error?:string):void {database.prepare("UPDATE collector_operation_run SET status=?,completed_at=?,error_summary=? WHERE operation_run_id=?").run(status,at,error??null,id);}
 
 export async function runManualCollection(options:CollectorOptions):Promise<CollectorResult>{
@@ -55,7 +58,7 @@ export async function runManualCollection(options:CollectorOptions):Promise<Coll
   const itemRun=startOperationRun(database,{runId,service:BID_NOTICE_SERVICE,operation:ITEM_NAME,queryBasis:"notice_identity",startedAt:iso(now)});
   const basisRun=startOperationRun(database,{runId,service:BID_NOTICE_SERVICE,operation:BASIS_NAME,queryBasis:"notice_identity",startedAt:iso(now)});
   database.prepare("UPDATE collector_operation_run SET overlap_minutes=? WHERE operation_run_id=?").run(plan.overlapMinutes,discoveryRun);
-  let notices=0,enriched=0,errors=0,lastCheckpoint:string|null=null,discoveryFailed=false;
+  let notices=0,enriched=0,errors=0,lastCheckpoint:string|null=null,discoveryFailed=false,failure:CollectorFailureDiagnostic|undefined;
   let apiCalls=0;
   const request=async(operation:any,params:any):Promise<KonepsResponse>=>{if(options.maxApiCalls!==undefined&&apiCalls>=options.maxApiCalls)throw new Error("SMOKE_API_CALL_LIMIT_EXCEEDED");apiCalls+=1;return client.request(operation,params);};
   const progress=(operation:string,range?:{start:string;end:string},page?:number)=>options.onProgress?.({operation,range,page,noticesDiscovered:notices,enrichmentCompleted:enriched,errors});
@@ -78,7 +81,7 @@ export async function runManualCollection(options:CollectorOptions):Promise<Coll
           seen+=saved.actualItemCount; page+=1; if(page>MAX_PAGES_PER_CHUNK) throw new Error("MAX_PAGE_LIMIT_EXCEEDED");
         }while(seen<(total??0));
         markWorkDone(database,work.workItemId,iso(now)); enriched+=1;
-      }catch(error){ errors+=1; const safe=safeError(error); markWorkFailed(database,work.workItemId,safe.category,safe.message,iso(now)); normalizationError(database,runId,operationRunId); }
+      }catch(error){ errors+=1; failure??=collectorFailureDiagnostic(error,work.operation,plan.effectiveRange); const safe=safeError(error); markWorkFailed(database,work.workItemId,safe.category,safe.message,iso(now)); normalizationError(database,runId,operationRunId); }
     }
   };
 
@@ -89,7 +92,7 @@ export async function runManualCollection(options:CollectorOptions):Promise<Coll
       let page=1,total:number|undefined,seen=0; const responseHashes=new Set<string>();
       do{
         progress(BID_NOTICE_OPERATION,range,page);
-        const params={pageNo:page,numOfRows:COLLECTOR_PAGE_ROWS,type:"json" as const,inqryDiv:"1" as const,inqryBgnDt:queryMinute(range.start),inqryEndDt:queryMinute(range.end)};
+        const params={pageNo:page,numOfRows:COLLECTOR_PAGE_ROWS,type:"json" as const,inqryDiv:"1" as const,inqryBgnDt:queryMinute(range.start),inqryEndDt:queryMinute(range.end),...(options.detailedProductClassNo?{dtilPrdctClsfcNo:options.detailedProductClassNo}:{})};
         try{
           const response=await request(BID_NOTICE_SEARCH_OPERATION,params); const saved=persistResponse(database,discoveryRun,BID_NOTICE_OPERATION,response,params);
           if(responseHashes.has(saved.responseSha256)) throw new Error("REPEATED_PAGE_RESPONSE"); responseHashes.add(saved.responseSha256);
@@ -104,7 +107,7 @@ export async function runManualCollection(options:CollectorOptions):Promise<Coll
         }catch(error){ persistError(database,discoveryRun,BID_NOTICE_OPERATION,page,params,error,iso(now)); throw error; }
       }while(seen<(total??0));
       if(options.advanceIncrementalCheckpoint!==false) advanceCheckpoint(database,range.end,runId,iso(now)); lastCheckpoint=range.end;
-    }catch(error){ errors+=1; discoveryFailed=true; const safe=safeError(error); setOperation(database,discoveryRun,"failed",iso(now),safe.category); break; }
+    }catch(error){ errors+=1; discoveryFailed=true; failure??=collectorFailureDiagnostic(error,BID_NOTICE_OPERATION,range); const safe=safeError(error); setOperation(database,discoveryRun,"failed",iso(now),safe.category); break; }
   }
   if(!discoveryFailed&&!cancelled()) setOperation(database,discoveryRun,"succeeded",iso(now));
   if(options.drainEnrichment!==false) await processWork();
@@ -113,5 +116,5 @@ export async function runManualCollection(options:CollectorOptions):Promise<Coll
   setOperation(database,basisRun,cancelled()?"cancelled":failedFor(BASIS_NAME)?"failed":"succeeded",iso(now));
   const status=cancelled()?"cancelled":discoveryFailed?(lastCheckpoint?"partial":"failed"):errors?"partial":"succeeded";
   database.prepare("UPDATE collector_run SET status=?,completed_at=?,error_summary=? WHERE run_id=?").run(status,iso(now),errors?`${errors} redacted collector error(s)`:null,runId);
-  return {runId,status,checkpoint:lastCheckpoint,noticesDiscovered:notices,enrichmentCompleted:enriched,errors};
+  return {runId,status,checkpoint:lastCheckpoint,noticesDiscovered:notices,enrichmentCompleted:enriched,errors,...(failure?{failure}:{})};
 }

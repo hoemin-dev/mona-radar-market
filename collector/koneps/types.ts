@@ -46,6 +46,14 @@ export interface DetailedProductClassificationSearchParams extends KonepsRequest
   readonly dtilPrdctClsfcNoEngNm?: string;
 }
 
+export interface AwardSearchParams extends KonepsRequestParams {
+  readonly inqryDiv: "1" | "2" | "3";
+  readonly inqryBgnDt?: string;
+  readonly inqryEndDt?: string;
+  readonly bidNtceNo?: string;
+  readonly dtilPrdctClsfcNo?: string;
+}
+
 export interface KonepsEnvelope {
   readonly resultCode: string;
   readonly resultMsg: string;

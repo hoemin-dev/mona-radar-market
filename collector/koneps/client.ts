@@ -17,7 +17,9 @@ export interface KonepsClientOptions {
   readonly sleep?: (milliseconds: number) => Promise<void>;
   readonly random?: () => number;
   readonly now?: () => Date;
-  readonly pacer?: { beforeAttempt(): Promise<void> };
+  readonly pacer?: { beforeAttempt(): Promise<void>; imposeCooldown?(milliseconds: number): void };
+  readonly rateLimitRetryDelaysMs?: readonly number[];
+  readonly onRateLimitRetry?: (event: { attempt: number; waitSeconds: number; operation: string }) => void;
 }
 
 export interface KonepsClientCounters {
@@ -82,7 +84,9 @@ export class KonepsClient {
   readonly #sleep: (milliseconds: number) => Promise<void>;
   readonly #random: () => number;
   readonly #now: () => Date;
-  readonly #pacer?: { beforeAttempt(): Promise<void> };
+  readonly #pacer?: { beforeAttempt(): Promise<void>; imposeCooldown?(milliseconds: number): void };
+  readonly #rateLimitRetryDelaysMs?: readonly number[];
+  readonly #onRateLimitRetry?: KonepsClientOptions["onRateLimitRetry"];
   #requestCount = 0;
   #retryCount = 0;
 
@@ -93,6 +97,8 @@ export class KonepsClient {
     this.#random = options.random ?? Math.random;
     this.#now = options.now ?? (() => new Date());
     this.#pacer = options.pacer;
+    this.#rateLimitRetryDelaysMs = options.rateLimitRetryDelaysMs;
+    this.#onRateLimitRetry = options.onRateLimitRetry;
   }
 
   get counters(): KonepsClientCounters {
@@ -122,7 +128,7 @@ export class KonepsClient {
       ...values,
     });
 
-    while (attemptCount <= this.#config.maxRetries) {
+    while (true) {
       await this.#pacer?.beforeAttempt();
       attemptCount += 1;
       this.#requestCount += 1;
@@ -142,6 +148,16 @@ export class KonepsClient {
         clearTimeout(timeout);
 
         if (!response.ok) {
+          if (response.status === 429 && this.#rateLimitRetryDelaysMs) {
+            const retryIndex = attemptCount - 1;
+            const waitMs = this.#rateLimitRetryDelaysMs[retryIndex];
+            if (waitMs !== undefined) {
+              this.#retryCount += 1;
+              this.#onRateLimitRetry?.({ attempt: retryIndex + 1, waitSeconds: waitMs / 1000, operation: operation.path });
+              if(this.#pacer?.imposeCooldown){this.#pacer.imposeCooldown(waitMs);}else{await this.#sleep(waitMs);}
+              continue;
+            }
+          }
           if (shouldRetryStatus(response.status) && attemptCount <= this.#config.maxRetries) {
             await this.#backoff(attemptCount);
             continue;

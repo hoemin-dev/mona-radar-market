@@ -377,4 +377,152 @@ export const MIGRATIONS: readonly Migration[] = [{
       CHECK((mode='historical' AND job_id IS NOT NULL) OR (mode='manual' AND job_id IS NULL))
     ) STRICT;
   `,
+}, {
+  version: 6,
+  name: "initial_monthly_target_state",
+  sql: `
+    CREATE TABLE initial_collection_job (
+      job_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL CHECK(status IN ('running','paused','completed')),
+      cutoff_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT
+    ) STRICT;
+    CREATE TABLE initial_collection_target (
+      job_id TEXT NOT NULL REFERENCES initial_collection_job(job_id) ON DELETE RESTRICT,
+      dtil_prdct_clsfc_no TEXT NOT NULL CHECK(length(dtil_prdct_clsfc_no)=10),
+      target_name TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','running','paused','completed')),
+      successful_through_month TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(job_id,dtil_prdct_clsfc_no)
+    ) STRICT;
+    CREATE TABLE initial_month_probe (
+      job_id TEXT NOT NULL,
+      dtil_prdct_clsfc_no TEXT NOT NULL,
+      month TEXT NOT NULL CHECK(length(month)=7),
+      range_start TEXT NOT NULL,
+      range_end TEXT NOT NULL,
+      total_count INTEGER NOT NULL CHECK(total_count>=0),
+      status TEXT NOT NULL CHECK(status IN ('probed','collecting','collected')),
+      probed_at TEXT NOT NULL,
+      completed_at TEXT,
+      last_run_id TEXT REFERENCES collector_run(run_id),
+      PRIMARY KEY(job_id,dtil_prdct_clsfc_no,month),
+      FOREIGN KEY(job_id,dtil_prdct_clsfc_no) REFERENCES initial_collection_target(job_id,dtil_prdct_clsfc_no) ON DELETE RESTRICT
+    ) STRICT;
+    CREATE INDEX idx_initial_resume ON initial_collection_target(job_id,status,dtil_prdct_clsfc_no);
+  `,
+}, {
+  version: 7,
+  name: "initial_month_partial_status",
+  sql: `
+    CREATE TABLE initial_month_probe_v7 (
+      job_id TEXT NOT NULL,
+      dtil_prdct_clsfc_no TEXT NOT NULL,
+      month TEXT NOT NULL CHECK(length(month)=7),
+      range_start TEXT NOT NULL,
+      range_end TEXT NOT NULL,
+      total_count INTEGER NOT NULL CHECK(total_count>=0),
+      status TEXT NOT NULL CHECK(status IN ('probed','collecting','collected','partial')),
+      probed_at TEXT NOT NULL,
+      completed_at TEXT,
+      last_run_id TEXT REFERENCES collector_run(run_id),
+      PRIMARY KEY(job_id,dtil_prdct_clsfc_no,month),
+      FOREIGN KEY(job_id,dtil_prdct_clsfc_no) REFERENCES initial_collection_target(job_id,dtil_prdct_clsfc_no) ON DELETE RESTRICT
+    ) STRICT;
+    INSERT INTO initial_month_probe_v7 SELECT * FROM initial_month_probe;
+    DROP TABLE initial_month_probe;
+    ALTER TABLE initial_month_probe_v7 RENAME TO initial_month_probe;
+  `,
+}, {
+  version: 8,
+  name: "award_collection_foundation",
+  sql: `
+    CREATE TABLE award_result (
+      award_result_id INTEGER PRIMARY KEY,
+      bid_notice_id INTEGER REFERENCES bid_notice(bid_notice_id),
+      target_detailed_product_class_no TEXT NOT NULL CHECK(length(target_detailed_product_class_no)=10),
+      bid_ntce_no TEXT NOT NULL,
+      bid_ntce_ord TEXT NOT NULL,
+      bid_clsfc_no TEXT NOT NULL,
+      rbid_no TEXT NOT NULL,
+      notice_division_code TEXT,
+      bid_ntce_name TEXT,
+      participant_count INTEGER,
+      winner_name TEXT NOT NULL,
+      winner_business_no TEXT NOT NULL,
+      winner_ceo_name TEXT,
+      winner_address TEXT,
+      winner_tel_no TEXT,
+      successful_bid_amount INTEGER,
+      successful_bid_rate TEXT,
+      real_opening_raw TEXT,
+      real_opening_local TEXT,
+      demand_institution_code TEXT,
+      demand_institution_name TEXT,
+      registered_raw TEXT NOT NULL,
+      registered_local TEXT,
+      final_successful_date TEXT,
+      winner_official TEXT,
+      source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id),
+      source_operation TEXT NOT NULL,
+      semantic_row_hash TEXT NOT NULL CHECK(length(semantic_row_hash)=64),
+      semantic_state_json TEXT NOT NULL CHECK(json_valid(semantic_state_json) AND json_type(semantic_state_json)='object'),
+      parse_warnings_json TEXT NOT NULL CHECK(json_valid(parse_warnings_json) AND json_type(parse_warnings_json)='array'),
+      first_normalized_at TEXT NOT NULL,
+      last_normalized_at TEXT NOT NULL,
+      UNIQUE(target_detailed_product_class_no,bid_ntce_no,bid_ntce_ord,bid_clsfc_no,rbid_no)
+    ) STRICT;
+    CREATE INDEX idx_award_notice_key ON award_result(bid_ntce_no,bid_ntce_ord,bid_clsfc_no,rbid_no);
+    CREATE INDEX idx_award_notice_fk ON award_result(bid_notice_id);
+    CREATE INDEX idx_award_target_date ON award_result(target_detailed_product_class_no,real_opening_local);
+    CREATE INDEX idx_award_winner_business ON award_result(winner_business_no);
+
+    CREATE TABLE award_result_revision (
+      award_result_revision_id INTEGER PRIMARY KEY,
+      award_result_id INTEGER NOT NULL REFERENCES award_result(award_result_id) ON DELETE CASCADE,
+      changed_at TEXT NOT NULL,
+      previous_row_hash TEXT NOT NULL CHECK(length(previous_row_hash)=64),
+      new_row_hash TEXT NOT NULL CHECK(length(new_row_hash)=64),
+      previous_source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id),
+      new_source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id),
+      previous_state_json TEXT NOT NULL CHECK(json_valid(previous_state_json)),
+      new_state_json TEXT NOT NULL CHECK(json_valid(new_state_json))
+    ) STRICT;
+
+    CREATE TABLE award_collection_job (
+      job_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL CHECK(status IN ('running','paused','completed')),
+      cutoff_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT
+    ) STRICT;
+    CREATE TABLE award_collection_target (
+      job_id TEXT NOT NULL REFERENCES award_collection_job(job_id) ON DELETE RESTRICT,
+      dtil_prdct_clsfc_no TEXT NOT NULL CHECK(length(dtil_prdct_clsfc_no)=10),
+      target_name TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','running','paused','completed')),
+      successful_through_month TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(job_id,dtil_prdct_clsfc_no)
+    ) STRICT;
+    CREATE TABLE award_month_probe (
+      job_id TEXT NOT NULL,
+      dtil_prdct_clsfc_no TEXT NOT NULL,
+      month TEXT NOT NULL CHECK(length(month)=7),
+      range_start TEXT NOT NULL,
+      range_end TEXT NOT NULL,
+      total_count INTEGER NOT NULL CHECK(total_count>=0),
+      status TEXT NOT NULL CHECK(status IN ('probed','collecting','collected','partial')),
+      probed_at TEXT NOT NULL,
+      completed_at TEXT,
+      last_run_id TEXT REFERENCES collector_run(run_id),
+      PRIMARY KEY(job_id,dtil_prdct_clsfc_no,month),
+      FOREIGN KEY(job_id,dtil_prdct_clsfc_no) REFERENCES award_collection_target(job_id,dtil_prdct_clsfc_no) ON DELETE RESTRICT
+    ) STRICT;
+    CREATE INDEX idx_award_resume ON award_collection_target(job_id,status,dtil_prdct_clsfc_no);
+  `,
 }];

@@ -1,4 +1,4 @@
-import type { BidBasisAmountIdentityParams, BidItemIdentityParams, BidNoticeSearchParams, DetailedProductClassificationSearchParams, KonepsOperation, KonepsService } from "./types.js";
+import type { AwardSearchParams, BidBasisAmountIdentityParams, BidItemIdentityParams, BidNoticeSearchParams, DetailedProductClassificationSearchParams, KonepsOperation, KonepsService } from "./types.js";
 
 export const KONEPS_SERVICE_ENDPOINTS: Readonly<Record<KonepsService, string>> = {
   BidPublicInfoService: "https://apis.data.go.kr/1230000/ad/BidPublicInfoService",
@@ -46,6 +46,22 @@ export const BID_BASIS_AMOUNT_OPERATION: KonepsOperation<BidBasisAmountIdentityP
 };
 
 const DETAILED_PRODUCT_CLASSIFICATION_NO = /^\d{10}$/;
+
+export const AWARD_SEARCH_OPERATION: KonepsOperation<AwardSearchParams> = {
+  service: "ScsbidInfoService",
+  path: "getScsbidListSttusThngPPSSrch",
+  defaultResponseType: "json",
+  validate(params) {
+    if (params.inqryDiv === "3") {
+      requiredIdentifier(params.bidNtceNo ?? "", "bidNtceNo");
+    } else if (!params.inqryBgnDt || !params.inqryEndDt || !DATE_TIME_MINUTE.test(params.inqryBgnDt) || !DATE_TIME_MINUTE.test(params.inqryEndDt)) {
+      throw new Error("award date search requires inqryBgnDt and inqryEndDt as YYYYMMDDHHMM");
+    }
+    if (params.dtilPrdctClsfcNo !== undefined && !DETAILED_PRODUCT_CLASSIFICATION_NO.test(params.dtilPrdctClsfcNo)) {
+      throw new Error("dtilPrdctClsfcNo must be a 10-digit detailed product classification number");
+    }
+  },
+};
 
 export const DETAILED_PRODUCT_CLASSIFICATION_SEARCH_OPERATION: KonepsOperation<DetailedProductClassificationSearchParams> = {
   service: "ThngListInfoService02",

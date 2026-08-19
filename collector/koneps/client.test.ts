@@ -121,6 +121,23 @@ test("retries HTTP 500 once and then succeeds", async () => {
   assert.deepEqual(client.counters, { requestCount: 2, retryCount: 1 });
 });
 
+test("uses the configured three-step rate-limit policy and paces every attempt", async () => {
+  const cooldowns:number[]=[];const retries:Array<{attempt:number;waitSeconds:number;operation:string}>=[];let calls=0,paced=0;
+  const client=new KonepsClient({
+    config:config({maxRetries:2}),fetch:async()=>{calls+=1;return jsonResponse("limited",429);},
+    pacer:{beforeAttempt:async()=>{paced+=1;},imposeCooldown:ms=>{cooldowns.push(ms);}},
+    rateLimitRetryDelaysMs:[60_000,180_000,300_000],onRateLimitRetry:event=>retries.push(event),
+  });
+  const error=await expectKonepsError(()=>client.request(BID_NOTICE_SEARCH_OPERATION,params),"http");
+  assert.equal(error.metadata?.httpStatus,429);assert.equal(calls,4);assert.equal(paced,4);
+  assert.deepEqual(cooldowns,[60_000,180_000,300_000]);
+  assert.deepEqual(retries.map(({attempt,waitSeconds,operation})=>({attempt,waitSeconds,operation})),[
+    {attempt:1,waitSeconds:60,operation:"getBidPblancListInfoThngPPSSrch"},
+    {attempt:2,waitSeconds:180,operation:"getBidPblancListInfoThngPPSSrch"},
+    {attempt:3,waitSeconds:300,operation:"getBidPblancListInfoThngPPSSrch"},
+  ]);
+});
+
 test("preserve mode avoids double encoding and all metadata redacts the key", async () => {
   let capturedUrl = "";
   const client = new KonepsClient({
