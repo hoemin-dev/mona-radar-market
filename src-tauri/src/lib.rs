@@ -149,18 +149,54 @@ fn dashboard_summary(app: AppHandle) -> Result<Value, String> {
 }
 
 #[tauri::command]
-fn search_notices(
+fn search_awards(
     app: AppHandle,
     query: Option<String>,
-    status: Option<String>,
+    opening_from: Option<String>,
+    opening_to: Option<String>,
+    amount_min: Option<i64>,
+    amount_max: Option<i64>,
+    rate_min: Option<f64>,
+    rate_max: Option<f64>,
+    winner: Option<String>,
+    demand_institution: Option<String>,
     limit: Option<i64>,
 ) -> Result<Value, String> {
     let db = connection(&app)?;
-    let limit = limit.unwrap_or(100).clamp(1, 200);
-    let q = query.unwrap_or_default();
-    let st = status.unwrap_or_default();
+    let limit = limit.unwrap_or(300).clamp(1, 500);
+    let q = query.unwrap_or_default().trim().to_owned();
+    let opening_from = opening_from.unwrap_or_default();
+    let opening_to = opening_to.unwrap_or_default();
+    let winner = winner.unwrap_or_default().trim().to_owned();
+    let demand = demand_institution.unwrap_or_default().trim().to_owned();
     let pattern = format!("%{}%", q);
-    let rows=db.prepare("SELECT bid_ntce_no,bid_ntce_ord,bid_ntce_name,notice_institution_name,demand_institution_name,notice_posted_local,bid_close_local,estimated_price,allocated_budget_amount,notice_kind_name FROM bid_notice WHERE (?1='' OR bid_ntce_name LIKE ?2 OR notice_institution_name LIKE ?2 OR demand_institution_name LIKE ?2) AND (?3='' OR notice_kind_name=?3) ORDER BY notice_posted_local DESC LIMIT ?4").map_err(|e|e.to_string())?.query_map(params![q,pattern,st,limit],|r|Ok(json!({"bidNo":value_or_empty(r,0),"bidOrd":value_or_empty(r,1),"name":value_or_empty(r,2),"institution":value_or_empty(r,3),"demandInstitution":value_or_empty(r,4),"postedAt":value_or_empty(r,5),"closeAt":value_or_empty(r,6),"estimatedPrice":r.get::<_,Option<i64>>(7).unwrap_or(None),"budget":r.get::<_,Option<i64>>(8).unwrap_or(None),"kind":value_or_empty(r,9)}))).map_err(|e|e.to_string())?.filter_map(Result::ok).collect::<Vec<_>>();
+    let winner_pattern = format!("%{}%", winner);
+    let demand_pattern = format!("%{}%", demand);
+    let sql = "SELECT a.award_result_id,a.bid_ntce_no,a.bid_ntce_ord,a.bid_ntce_name,
+        a.target_detailed_product_class_no,a.winner_name,a.winner_business_no,
+        a.winner_ceo_name,a.winner_address,a.winner_tel_no,a.successful_bid_amount,
+        a.successful_bid_rate,a.demand_institution_name,a.demand_institution_code,
+        a.real_opening_local,a.participant_count,
+        (SELECT t.target_name FROM award_collection_target t
+         WHERE t.dtil_prdct_clsfc_no=a.target_detailed_product_class_no
+         ORDER BY t.updated_at DESC LIMIT 1) AS target_name
+      FROM award_result a
+      WHERE (?1='' OR a.bid_ntce_name LIKE ?2 OR a.winner_name LIKE ?2
+        OR a.demand_institution_name LIKE ?2 OR a.target_detailed_product_class_no LIKE ?2
+        OR a.bid_ntce_no LIKE ?2)
+        AND (?3='' OR substr(a.real_opening_local,1,10)>=?3)
+        AND (?4='' OR substr(a.real_opening_local,1,10)<=?4)
+        AND (?5 IS NULL OR a.successful_bid_amount>=?5)
+        AND (?6 IS NULL OR a.successful_bid_amount<=?6)
+        AND (?7 IS NULL OR CAST(a.successful_bid_rate AS REAL)>=?7)
+        AND (?8 IS NULL OR CAST(a.successful_bid_rate AS REAL)<=?8)
+        AND (?9='' OR a.winner_name LIKE ?10)
+        AND (?11='' OR a.demand_institution_name LIKE ?12)
+      ORDER BY a.real_opening_local DESC,a.award_result_id DESC LIMIT ?13";
+    let rows=db.prepare(sql).map_err(|e|e.to_string())?.query_map(
+        params![q,pattern,opening_from,opening_to,amount_min,amount_max,rate_min,rate_max,winner,winner_pattern,demand,demand_pattern,limit],
+        |r|Ok(json!({"awardResultId":r.get::<_,i64>(0)?,"bidNo":value_or_empty(r,1),"bidOrd":value_or_empty(r,2),"name":value_or_empty(r,3),"productClassNo":value_or_empty(r,4),"winnerName":value_or_empty(r,5),"winnerBusinessNo":value_or_empty(r,6),"winnerCeoName":value_or_empty(r,7),"winnerAddress":value_or_empty(r,8),"winnerTelNo":value_or_empty(r,9),"successfulBidAmount":r.get::<_,Option<i64>>(10)?,"successfulBidRate":value_or_empty(r,11),"demandInstitution":value_or_empty(r,12),"demandInstitutionCode":value_or_empty(r,13),"realOpeningLocal":value_or_empty(r,14),"participantCount":r.get::<_,Option<i64>>(15)?,"productClassName":value_or_empty(r,16)}))
+    ).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
     Ok(json!({"rows":rows}))
 }
 
@@ -428,7 +464,7 @@ pub fn run() {
         .manage(CollectorState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             dashboard_summary,
-            search_notices,
+            search_awards,
             notice_detail,
             collector_status,
             api_key_status,
