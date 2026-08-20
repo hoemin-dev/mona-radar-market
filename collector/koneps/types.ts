@@ -54,6 +54,13 @@ export interface AwardSearchParams extends KonepsRequestParams {
   readonly dtilPrdctClsfcNo?: string;
 }
 
+export interface ContractSearchParams extends KonepsRequestParams {
+  readonly inqryDiv: "1";
+  readonly inqryBgnDate: string;
+  readonly inqryEndDate: string;
+  readonly prdctClsfcNoNm: string;
+}
+
 export interface KonepsEnvelope {
   readonly resultCode: string;
   readonly resultMsg: string;

@@ -525,4 +525,64 @@ export const MIGRATIONS: readonly Migration[] = [{
     ) STRICT;
     CREATE INDEX idx_award_resume ON award_collection_target(job_id,status,dtil_prdct_clsfc_no);
   `,
+}, {
+  version: 9,
+  name: "contract_collection_foundation",
+  sql: `
+    CREATE TABLE contract_result (
+      contract_result_id INTEGER PRIMARY KEY,
+      target_detailed_product_class_no TEXT NOT NULL CHECK(length(target_detailed_product_class_no)=10),
+      decision_contract_no TEXT NOT NULL,
+      contract_no TEXT,
+      contract_name TEXT,
+      contract_method_name TEXT,
+      contract_institution_name TEXT,
+      demand_institution_name TEXT,
+      contract_amount INTEGER,
+      contract_date TEXT,
+      contract_detail_url TEXT,
+      source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id),
+      source_operation TEXT NOT NULL,
+      semantic_row_hash TEXT NOT NULL CHECK(length(semantic_row_hash)=64),
+      semantic_state_json TEXT NOT NULL CHECK(json_valid(semantic_state_json) AND json_type(semantic_state_json)='object'),
+      parse_warnings_json TEXT NOT NULL CHECK(json_valid(parse_warnings_json) AND json_type(parse_warnings_json)='array'),
+      first_normalized_at TEXT NOT NULL,
+      last_normalized_at TEXT NOT NULL,
+      UNIQUE(target_detailed_product_class_no,decision_contract_no)
+    ) STRICT;
+    CREATE INDEX idx_contract_target_date ON contract_result(target_detailed_product_class_no,contract_date);
+
+    CREATE TABLE contract_collection_job (
+      job_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL CHECK(status IN ('running','paused','completed')),
+      cutoff_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT
+    ) STRICT;
+    CREATE TABLE contract_collection_target (
+      job_id TEXT NOT NULL REFERENCES contract_collection_job(job_id) ON DELETE RESTRICT,
+      dtil_prdct_clsfc_no TEXT NOT NULL CHECK(length(dtil_prdct_clsfc_no)=10),
+      target_name TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','running','paused','completed')),
+      successful_through_month TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(job_id,dtil_prdct_clsfc_no)
+    ) STRICT;
+    CREATE TABLE contract_month_probe (
+      job_id TEXT NOT NULL,
+      dtil_prdct_clsfc_no TEXT NOT NULL,
+      month TEXT NOT NULL CHECK(length(month)=7),
+      range_start TEXT NOT NULL,
+      range_end TEXT NOT NULL,
+      total_count INTEGER NOT NULL CHECK(total_count>=0),
+      status TEXT NOT NULL CHECK(status IN ('probed','collecting','collected','partial')),
+      probed_at TEXT NOT NULL,
+      completed_at TEXT,
+      last_run_id TEXT REFERENCES collector_run(run_id),
+      PRIMARY KEY(job_id,dtil_prdct_clsfc_no,month),
+      FOREIGN KEY(job_id,dtil_prdct_clsfc_no) REFERENCES contract_collection_target(job_id,dtil_prdct_clsfc_no) ON DELETE RESTRICT
+    ) STRICT;
+    CREATE INDEX idx_contract_resume ON contract_collection_target(job_id,status,dtil_prdct_clsfc_no);
+  `,
 }];

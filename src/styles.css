@@ -44,6 +44,8 @@ main::-webkit-scrollbar{width:9px}main::-webkit-scrollbar-track{background:#0815
 .collection-flows{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.collection-flow{margin-top:18px}.collection-flow h3{margin-top:0}.disabled-flow{opacity:.62}.stop-workspace{margin-top:14px;padding:14px 18px}@media(max-width:1050px){.collection-flows{grid-template-columns:1fr}}
 @property --collector-highlight-angle{syntax:"<angle>";inherits:false;initial-value:0deg}
 .collection-flow.is-running{position:relative;isolation:isolate}
+.collection-flow.is-blocked{opacity:.42;pointer-events:none;filter:saturate(.45)}
+.collection-flow.disabled-flow:not(.is-blocked){opacity:1}
 .collection-flow.is-running::after{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;pointer-events:none;background:conic-gradient(from var(--collector-highlight-angle),transparent 0deg 330deg,#8af0cb 346deg,#d7fff0 352deg,#8af0cb 358deg,transparent 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;filter:drop-shadow(0 0 2px #6be0b566);animation:collector-border-orbit 2.8s linear infinite}
 @keyframes collector-border-orbit{to{--collector-highlight-angle:-360deg}}
 @media(prefers-reduced-motion:reduce){.collection-flow.is-running::after{animation-duration:8s}}
