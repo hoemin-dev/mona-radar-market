@@ -251,6 +251,9 @@ fn runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
             .join("runtime"))
     }
 }
+fn pause_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(runtime_dir(app)?.join("collector.pause"))
+}
 #[cfg(debug_assertions)]
 fn development_env_has_key(root: &std::path::Path) -> bool {
     let Ok(text) = fs::read_to_string(root.join(".env")) else {
@@ -388,6 +391,8 @@ fn start_collection(
     }
     let runtime = runtime_dir(&app)?;
     let db = db_path(&app)?;
+    let pause_file = pause_path(&app)?;
+    let _ = fs::remove_file(&pause_file);
     let mut args = vec!["collector/orchestration/cli.js".to_string()];
     if mode == "award" || mode == "contract" {
         args[0] = if mode == "award" {
@@ -416,6 +421,7 @@ fn start_collection(
         .args(args)
         .current_dir(&runtime)
         .env("MARKET_DB_PATH", db)
+        .env("MARKET_COLLECTOR_PAUSE_FILE", &pause_file)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -488,6 +494,19 @@ fn start_collection(
     Ok(())
 }
 #[tauri::command]
+fn pause_collection(app: AppHandle, state: State<CollectorState>) -> Result<(), String> {
+    let running = state
+        .0
+        .lock()
+        .map_err(|_| "collector state lock failed")?
+        .as_mut()
+        .is_some_and(|child| child.try_wait().ok().flatten().is_none());
+    if running {
+        fs::write(pause_path(&app)?, b"pause").map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+#[tauri::command]
 fn stop_collection(state: State<CollectorState>) -> Result<(), String> {
     let mut guard = state.0.lock().map_err(|_| "collector state lock failed")?;
     if let Some(child) = guard.as_mut() {
@@ -510,6 +529,7 @@ pub fn run() {
             test_api_key,
             search_collection_targets,
             start_collection,
+            pause_collection,
             stop_collection
         ])
         .run(tauri::generate_context!())

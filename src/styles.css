@@ -45,6 +45,7 @@ main::-webkit-scrollbar{width:9px}main::-webkit-scrollbar-track{background:#0815
 @property --collector-highlight-angle{syntax:"<angle>";inherits:false;initial-value:0deg}
 .collection-flow.is-running{position:relative;isolation:isolate}
 .collection-flow.is-blocked{opacity:.42;pointer-events:none;filter:saturate(.45)}
+.collector-form .danger{border-color:#8c4949;color:#ffc4c4}.incremental-target{margin-top:14px;color:#8daaa1;font-size:12px}.incremental-target summary{cursor:pointer;color:#b6d7cc}.incremental-target p{margin:9px 0 0;line-height:1.55}.log pre{overflow-anchor:none}
 .collection-flow.disabled-flow:not(.is-blocked){opacity:1}
 .collection-flow.is-running::after{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;pointer-events:none;background:conic-gradient(from var(--collector-highlight-angle),transparent 0deg 330deg,#8af0cb 346deg,#d7fff0 352deg,#8af0cb 358deg,transparent 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;filter:drop-shadow(0 0 2px #6be0b566);animation:collector-border-orbit 2.8s linear infinite}
 @keyframes collector-border-orbit{to{--collector-highlight-angle:-360deg}}

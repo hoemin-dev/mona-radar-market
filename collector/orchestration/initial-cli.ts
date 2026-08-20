@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+const pauseFile=process.env.MARKET_COLLECTOR_PAUSE_FILE;if(pauseFile)setInterval(()=>{if(existsSync(pauseFile))process.kill(process.pid,"SIGTERM");},250).unref();
 import { openMarketDatabase,DEFAULT_MARKET_DB_PATH } from "../storage/database.js";
 import { BID_NOTICE_SEARCH_OPERATION } from "../koneps/endpoints.js";
 import { KonepsClient } from "../koneps/client.js";
