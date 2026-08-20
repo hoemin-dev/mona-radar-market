@@ -390,7 +390,11 @@ fn start_collection(
     let db = db_path(&app)?;
     let mut args = vec!["collector/orchestration/cli.js".to_string()];
     if mode == "award" || mode == "contract" {
-        args[0] = if mode == "award" { "collector/orchestration/award-cli.js".into() } else { "collector/orchestration/contract-cli.js".into() };
+        args[0] = if mode == "award" {
+            "collector/orchestration/award-cli.js".into()
+        } else {
+            "collector/orchestration/contract-cli.js".into()
+        };
         args.extend([
             "--targets".into(),
             serde_json::to_string(&targets.unwrap_or_else(|| json!([])))
@@ -446,7 +450,41 @@ fn start_collection(
             }
         });
     }
+    let child_id = child.id();
     *guard = Some(child);
+    drop(guard);
+    let handle = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let state = handle.state::<CollectorState>();
+        let exit = {
+            let Ok(mut guard) = state.0.lock() else {
+                return;
+            };
+            let Some(child) = guard.as_mut() else { return };
+            if child.id() != child_id {
+                return;
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    *guard = None;
+                    Some((status.success(), status.code()))
+                }
+                Ok(None) => None,
+                Err(_) => {
+                    *guard = None;
+                    Some((false, None))
+                }
+            }
+        };
+        if let Some((success, exit_code)) = exit {
+            let _ = handle.emit(
+                "collector-event",
+                json!({"type":"COLLECTOR_EXIT","success":success,"exitCode":exit_code}),
+            );
+            return;
+        }
+    });
     Ok(())
 }
 #[tauri::command]
