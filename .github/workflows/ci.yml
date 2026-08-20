@@ -40,5 +40,8 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Create bundled resource directory
+        run: New-Item -ItemType Directory -Path runtime
+
       - name: Check Tauri backend
         run: cargo check --locked --manifest-path src-tauri/Cargo.toml
