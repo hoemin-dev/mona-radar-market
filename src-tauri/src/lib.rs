@@ -152,6 +152,9 @@ fn dashboard_summary(app: AppHandle) -> Result<Value, String> {
 fn search_awards(
     app: AppHandle,
     query: Option<String>,
+    category: Option<String>,
+    product_name: Option<String>,
+    product_class_no: Option<String>,
     opening_from: Option<String>,
     opening_to: Option<String>,
     amount_min: Option<i64>,
@@ -165,6 +168,12 @@ fn search_awards(
     let db = connection(&app)?;
     let limit = limit.unwrap_or(300).clamp(1, 500);
     let q = query.unwrap_or_default().trim().to_owned();
+    let category = category.unwrap_or_else(|| "all".into());
+    if !matches!(category.as_str(), "all" | "product" | "part") {
+        return Err("지원하지 않는 제품 구분입니다.".into());
+    }
+    let product_name = product_name.unwrap_or_default().trim().to_owned();
+    let product_class_no = product_class_no.unwrap_or_default().trim().to_owned();
     let opening_from = opening_from.unwrap_or_default();
     let opening_to = opening_to.unwrap_or_default();
     let winner = winner.unwrap_or_default().trim().to_owned();
@@ -172,15 +181,20 @@ fn search_awards(
     let pattern = format!("%{}%", q);
     let winner_pattern = format!("%{}%", winner);
     let demand_pattern = format!("%{}%", demand);
-    let sql = "SELECT a.award_result_id,a.bid_ntce_no,a.bid_ntce_ord,a.bid_ntce_name,
+    let product_name_pattern = format!("%{}%", product_name);
+    let product_class_pattern = format!("%{}%", product_class_no);
+    let sql = "SELECT DISTINCT a.award_result_id,a.bid_ntce_no,a.bid_ntce_ord,a.bid_ntce_name,
         a.target_detailed_product_class_no,a.winner_name,a.winner_business_no,
         a.winner_ceo_name,a.winner_address,a.winner_tel_no,a.successful_bid_amount,
         a.successful_bid_rate,a.demand_institution_name,a.demand_institution_code,
         a.real_opening_local,a.participant_count,
         (SELECT t.target_name FROM award_collection_target t
          WHERE t.dtil_prdct_clsfc_no=a.target_detailed_product_class_no
-         ORDER BY t.updated_at DESC LIMIT 1) AS target_name
+         ORDER BY t.updated_at DESC LIMIT 1) AS target_name,
+        c.category AS product_category,l.source AS product_category_source
       FROM award_result a
+      LEFT JOIN award_catalog_item_link l ON l.award_result_id=a.award_result_id
+      LEFT JOIN catalog_item_category c ON c.prdct_idnt_no=l.prdct_idnt_no
       WHERE (?1='' OR a.bid_ntce_name LIKE ?2 OR a.winner_name LIKE ?2
         OR a.demand_institution_name LIKE ?2 OR a.target_detailed_product_class_no LIKE ?2
         OR a.bid_ntce_no LIKE ?2)
@@ -192,10 +206,15 @@ fn search_awards(
         AND (?8 IS NULL OR CAST(a.successful_bid_rate AS REAL)<=?8)
         AND (?9='' OR a.winner_name LIKE ?10)
         AND (?11='' OR a.demand_institution_name LIKE ?12)
-      ORDER BY a.real_opening_local DESC,a.award_result_id DESC LIMIT ?13";
+        AND (?13='all' OR c.category=?13)
+        AND (?14='' OR (SELECT t.target_name FROM award_collection_target t
+          WHERE t.dtil_prdct_clsfc_no=a.target_detailed_product_class_no
+          ORDER BY t.updated_at DESC LIMIT 1) LIKE ?15)
+        AND (?16='' OR a.target_detailed_product_class_no LIKE ?17)
+      ORDER BY a.real_opening_local DESC,a.award_result_id DESC LIMIT ?18";
     let rows=db.prepare(sql).map_err(|e|e.to_string())?.query_map(
-        params![q,pattern,opening_from,opening_to,amount_min,amount_max,rate_min,rate_max,winner,winner_pattern,demand,demand_pattern,limit],
-        |r|Ok(json!({"awardResultId":r.get::<_,i64>(0)?,"bidNo":value_or_empty(r,1),"bidOrd":value_or_empty(r,2),"name":value_or_empty(r,3),"productClassNo":value_or_empty(r,4),"winnerName":value_or_empty(r,5),"winnerBusinessNo":value_or_empty(r,6),"winnerCeoName":value_or_empty(r,7),"winnerAddress":value_or_empty(r,8),"winnerTelNo":value_or_empty(r,9),"successfulBidAmount":r.get::<_,Option<i64>>(10)?,"successfulBidRate":value_or_empty(r,11),"demandInstitution":value_or_empty(r,12),"demandInstitutionCode":value_or_empty(r,13),"realOpeningLocal":value_or_empty(r,14),"participantCount":r.get::<_,Option<i64>>(15)?,"productClassName":value_or_empty(r,16)}))
+        params![q,pattern,opening_from,opening_to,amount_min,amount_max,rate_min,rate_max,winner,winner_pattern,demand,demand_pattern,category,product_name,product_name_pattern,product_class_no,product_class_pattern,limit],
+        |r|Ok(json!({"awardResultId":r.get::<_,i64>(0)?,"bidNo":value_or_empty(r,1),"bidOrd":value_or_empty(r,2),"name":value_or_empty(r,3),"productClassNo":value_or_empty(r,4),"winnerName":value_or_empty(r,5),"winnerBusinessNo":value_or_empty(r,6),"winnerCeoName":value_or_empty(r,7),"winnerAddress":value_or_empty(r,8),"winnerTelNo":value_or_empty(r,9),"successfulBidAmount":r.get::<_,Option<i64>>(10)?,"successfulBidRate":value_or_empty(r,11),"demandInstitution":value_or_empty(r,12),"demandInstitutionCode":value_or_empty(r,13),"realOpeningLocal":value_or_empty(r,14),"participantCount":r.get::<_,Option<i64>>(15)?,"productClassName":value_or_empty(r,16),"productCategory":value_or_empty(r,17),"productCategorySource":value_or_empty(r,18)}))
     ).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
     Ok(json!({"rows":rows}))
 }
@@ -228,8 +247,17 @@ fn collector_status(app: AppHandle, state: State<CollectorState>) -> Result<Valu
             };
             let award_job=if db.query_row("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='award_collection_job'",[],|r|r.get::<_,i64>(0)).unwrap_or(0)>0{db.query_row("SELECT job_id,status,(SELECT max(successful_through_month) FROM award_collection_target WHERE job_id=award_collection_job.job_id) FROM award_collection_job ORDER BY updated_at DESC LIMIT 1",[],|r|Ok(json!({"jobId":value_or_empty(r,0),"status":value_or_empty(r,1),"through":value_or_empty(r,2)}))).optional().unwrap_or(None)}else{None};
             let contract_job=if db.query_row("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='contract_collection_job'",[],|r|r.get::<_,i64>(0)).unwrap_or(0)>0{db.query_row("SELECT job_id,status,(SELECT max(successful_through_month) FROM contract_collection_target WHERE job_id=contract_collection_job.job_id) FROM contract_collection_job ORDER BY updated_at DESC LIMIT 1",[],|r|Ok(json!({"jobId":value_or_empty(r,0),"status":value_or_empty(r,1),"through":value_or_empty(r,2)}))).optional().unwrap_or(None)}else{None};
+            let lifecycle=if db.query_row("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='lifecycle_collection_state'",[],|r|r.get::<_,i64>(0)).unwrap_or(0)>0{
+                let count=|status:&str|db.query_row("SELECT count(*) FROM lifecycle_collection_state WHERE status=?1",[status],|r|r.get::<_,i64>(0)).unwrap_or(0);
+                let success=count("SUCCESS");let no_data=count("NO_DATA");let failed=count("FAILED");let running_count=count("RUNNING");
+                let current=db.query_row("SELECT b.bid_ntce_no FROM lifecycle_collection_state s JOIN bid_notice b ON b.bid_notice_id=s.bid_notice_id WHERE s.status='RUNNING' ORDER BY s.updated_at DESC LIMIT 1",[],|r|r.get::<_,String>(0)).optional().unwrap_or(None);
+                let target=db.query_row("SELECT count(*) FROM bid_notice",[],|r|r.get::<_,i64>(0)).unwrap_or(0);
+                let linked_awards=db.query_row("SELECT count(*) FROM bid_award_link WHERE relationship_source='official_integrated_api' AND match_status='official_matched'",[],|r|r.get::<_,i64>(0)).unwrap_or(0);
+                let linked_contracts=db.query_row("SELECT count(*) FROM bid_contract_link WHERE relationship_source='official_integrated_api' AND match_status='official_matched'",[],|r|r.get::<_,i64>(0)).unwrap_or(0);
+                json!({"target":target,"pending":count("PENDING"),"running":running_count,"success":success,"noData":no_data,"failed":failed,"processed":success+no_data+failed,"currentBidNtceNo":current,"linkedAwards":linked_awards,"linkedContracts":linked_contracts})
+            }else{json!({"target":0,"pending":0,"running":0,"success":0,"noData":0,"failed":0,"processed":0,"currentBidNtceNo":null,"linkedAwards":0,"linkedContracts":0})};
             Ok(
-                json!({"ready":true,"running":running,"checkpoint":checkpoint,"job":job,"awardJob":award_job,"contractJob":contract_job}),
+                json!({"ready":true,"running":running,"checkpoint":checkpoint,"job":job,"awardJob":award_job,"contractJob":contract_job,"lifecycle":lifecycle}),
             )
         }
         Err(_) => Ok(
@@ -394,7 +422,9 @@ fn start_collection(
     let pause_file = pause_path(&app)?;
     let _ = fs::remove_file(&pause_file);
     let mut args = vec!["collector/orchestration/cli.js".to_string()];
-    if mode == "award" || mode == "contract" {
+    if mode == "lifecycle" {
+        args[0] = "collector/orchestration/lifecycle-cli.js".into();
+    } else if mode == "award" || mode == "contract" {
         args[0] = if mode == "award" {
             "collector/orchestration/award-cli.js".into()
         } else {

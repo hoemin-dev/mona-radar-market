@@ -1,10 +1,22 @@
-import type { AwardSearchParams, BidBasisAmountIdentityParams, BidItemIdentityParams, BidNoticeSearchParams, ContractSearchParams, DetailedProductClassificationSearchParams, KonepsOperation, KonepsService } from "./types.js";
+import type { AwardSearchParams, BidBasisAmountIdentityParams, BidItemIdentityParams, BidNoticeSearchParams, CatalogItemSearchParams, ContractSearchParams, DetailedProductClassificationSearchParams, LifecycleIntegratedParams, KonepsOperation, KonepsService } from "./types.js";
 
 export const KONEPS_SERVICE_ENDPOINTS: Readonly<Record<KonepsService, string>> = {
   BidPublicInfoService: "https://apis.data.go.kr/1230000/ad/BidPublicInfoService",
   ScsbidInfoService: "https://apis.data.go.kr/1230000/as/ScsbidInfoService",
   CntrctInfoService: "https://apis.data.go.kr/1230000/ao/CntrctInfoService",
   ThngListInfoService02: "https://apis.data.go.kr/1230000/ao/ThngListInfoService02",
+  CntrctProcssIntgOpenService: "https://apis.data.go.kr/1230000/ao/CntrctProcssIntgOpenService",
+};
+
+export const LIFECYCLE_INTEGRATED_OPERATION: KonepsOperation<LifecycleIntegratedParams> = {
+  service: "CntrctProcssIntgOpenService",
+  path: "getCntrctProcssIntgOpenThng",
+  defaultResponseType: "json",
+  validate(params) {
+    if (params.inqryDiv !== "1") throw new Error("lifecycle notice lookup requires inqryDiv=1");
+    requiredIdentifier(params.bidNtceNo, "bidNtceNo");
+    if (params.bidNtceOrd !== undefined) requiredIdentifier(params.bidNtceOrd, "bidNtceOrd");
+  },
 };
 
 const DATE_TIME_MINUTE = /^\d{12}$/;
@@ -95,6 +107,25 @@ export const DETAILED_PRODUCT_CLASSIFICATION_SEARCH_OPERATION: KonepsOperation<D
       && params.dtilPrdctClsfcNoBgnNo > params.dtilPrdctClsfcNoEndNo
     ) {
       throw new Error("dtilPrdctClsfcNoBgnNo must not exceed dtilPrdctClsfcNoEndNo");
+    }
+  },
+};
+
+/** Official catalog-item lookup; intentionally not attached to a collector flow. */
+export const CATALOG_ITEM_SEARCH_OPERATION: KonepsOperation<CatalogItemSearchParams> = {
+  service: "ThngListInfoService02",
+  path: "getThngPrdnmLocplcAccotListInfoInfoPrdlstSearch02",
+  defaultResponseType: "json",
+  validate(params) {
+    const supplied = [params.dtilPrdctClsfcNo, params.prdctIdntNo, params.prdctClsfcNoEngNm,
+      params.prdctClsfcNoNm, params.krnPrdctNm, params.inqryBgnDt, params.inqryEndDt,
+      params.chgPrdBgnDt, params.chgPrdEndDt].some((value) => value !== undefined && value.trim() !== "");
+    if (!supplied) throw new Error("catalog item search requires at least one documented search field");
+    if (params.dtilPrdctClsfcNo !== undefined && !DETAILED_PRODUCT_CLASSIFICATION_NO.test(params.dtilPrdctClsfcNo)) {
+      throw new Error("dtilPrdctClsfcNo must be a 10-digit detailed product classification number");
+    }
+    if (params.prdctIdntNo !== undefined && !/^\d{8}$/u.test(params.prdctIdntNo)) {
+      throw new Error("prdctIdntNo must be an 8-digit product identification number");
     }
   },
 };

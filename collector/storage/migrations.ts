@@ -585,4 +585,159 @@ export const MIGRATIONS: readonly Migration[] = [{
     ) STRICT;
     CREATE INDEX idx_contract_resume ON contract_collection_target(job_id,status,dtil_prdct_clsfc_no);
   `,
+}, {
+  version: 10,
+  name: "detailed_product_category",
+  sql: `
+    CREATE TABLE detailed_product_category (
+      detailed_product_class_no TEXT NOT NULL CHECK(length(detailed_product_class_no)=10),
+      category TEXT CHECK(category IN ('product','part')),
+      source TEXT NOT NULL CHECK(source IN ('catalog_item_cmpnt_yn','catalog_class_consensus','manual_override','unknown')),
+      evidence_note TEXT NOT NULL,
+      valid_item_count INTEGER CHECK(valid_item_count IS NULL OR valid_item_count>=0),
+      component_yes_count INTEGER CHECK(component_yes_count IS NULL OR component_yes_count>=0),
+      component_no_count INTEGER CHECK(component_no_count IS NULL OR component_no_count>=0),
+      indeterminate_count INTEGER CHECK(indeterminate_count IS NULL OR indeterminate_count>=0),
+      observed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(detailed_product_class_no,source),
+      CHECK((source='unknown' AND category IS NULL) OR (source!='unknown' AND category IS NOT NULL)),
+      CHECK(source!='catalog_class_consensus' OR (
+        valid_item_count>0 AND indeterminate_count=0 AND
+        ((category='part' AND component_yes_count=valid_item_count AND component_no_count=0) OR
+         (category='product' AND component_no_count=valid_item_count AND component_yes_count=0))
+      ))
+    ) STRICT;
+    CREATE INDEX idx_detailed_product_category_category
+      ON detailed_product_category(category,detailed_product_class_no);
+  `,
+}, {
+  version: 11,
+  name: "catalog_item_category",
+  sql: `
+    CREATE TABLE catalog_item_category (
+      prdct_idnt_no TEXT PRIMARY KEY CHECK(length(prdct_idnt_no)=8),
+      detailed_product_class_no TEXT NOT NULL CHECK(length(detailed_product_class_no)=10),
+      category TEXT NOT NULL CHECK(category IN ('product','part')),
+      cmpnt_yn TEXT NOT NULL CHECK(cmpnt_yn IN ('Y','N')),
+      use_yn TEXT CHECK(use_yn IN ('Y','N')),
+      dlt_yn TEXT CHECK(dlt_yn IN ('Y','N')),
+      evidence_note TEXT NOT NULL,
+      observed_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK((cmpnt_yn='Y' AND category='part') OR (cmpnt_yn='N' AND category='product'))
+    ) STRICT;
+    CREATE INDEX idx_catalog_item_category_lookup ON catalog_item_category(category,prdct_idnt_no);
+    CREATE INDEX idx_catalog_item_detailed_class ON catalog_item_category(detailed_product_class_no,prdct_idnt_no);
+  `,
+}, {
+  version: 12,
+  name: "award_catalog_item_link",
+  sql: `
+    CREATE TABLE award_catalog_item_link (
+      award_result_id INTEGER NOT NULL REFERENCES award_result(award_result_id) ON DELETE RESTRICT,
+      prdct_idnt_no TEXT NOT NULL REFERENCES catalog_item_category(prdct_idnt_no) ON DELETE RESTRICT,
+      source TEXT NOT NULL CHECK(source IN ('official_api','manual_verified')),
+      evidence_note TEXT NOT NULL,
+      observed_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(award_result_id,prdct_idnt_no)
+    ) STRICT;
+    CREATE INDEX idx_award_catalog_item_link_item
+      ON award_catalog_item_link(prdct_idnt_no,award_result_id);
+  `,
+}, {
+  version: 13,
+  name: "official_lifecycle_enrichment",
+  sql: `
+    CREATE TABLE lifecycle_collection_state (
+      bid_notice_id INTEGER PRIMARY KEY REFERENCES bid_notice(bid_notice_id) ON DELETE RESTRICT,
+      status TEXT NOT NULL CHECK(status IN ('pending','running','succeeded','failed')),
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0),
+      last_attempt_at TEXT, collected_at TEXT, last_error_category TEXT, last_error_summary TEXT,
+      updated_at TEXT NOT NULL
+    ) STRICT;
+    CREATE INDEX idx_lifecycle_state_retry ON lifecycle_collection_state(status,updated_at);
+
+    CREATE TABLE lifecycle_record (
+      lifecycle_record_id INTEGER PRIMARY KEY,
+      bid_notice_id INTEGER NOT NULL REFERENCES bid_notice(bid_notice_id) ON DELETE RESTRICT,
+      order_plan_no TEXT, order_plan_unified_no TEXT, prior_specification_registration_no TEXT,
+      bid_ntce_no TEXT NOT NULL, bid_ntce_ord TEXT, procurement_request_no TEXT, bid_ntce_name TEXT,
+      source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id),
+      source_operation TEXT NOT NULL CHECK(source_operation='getCntrctProcssIntgOpenThng'),
+      collected_at TEXT NOT NULL,
+      UNIQUE(bid_notice_id)
+    ) STRICT;
+    CREATE INDEX idx_lifecycle_notice_key ON lifecycle_record(bid_ntce_no,bid_ntce_ord);
+
+    CREATE TABLE lifecycle_award (
+      lifecycle_award_id INTEGER PRIMARY KEY,
+      lifecycle_record_id INTEGER NOT NULL REFERENCES lifecycle_record(lifecycle_record_id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL CHECK(ordinal>=0), winner_name TEXT, winner_business_no TEXT, winner_ceo_name TEXT,
+      successful_bid_amount INTEGER, successful_bid_rate TEXT, participant_count INTEGER, opening_datetime TEXT,
+      raw_json TEXT NOT NULL CHECK(json_valid(raw_json) AND json_type(raw_json)='object'),
+      UNIQUE(lifecycle_record_id,ordinal)
+    ) STRICT;
+    CREATE TABLE lifecycle_contract (
+      lifecycle_contract_id INTEGER PRIMARY KEY,
+      lifecycle_record_id INTEGER NOT NULL REFERENCES lifecycle_record(lifecycle_record_id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL CHECK(ordinal>=0), contract_no TEXT, contract_name TEXT,
+      contract_institution_name TEXT, contract_method_name TEXT, contract_amount INTEGER, contract_date TEXT,
+      raw_json TEXT NOT NULL CHECK(json_valid(raw_json) AND json_type(raw_json)='object'),
+      UNIQUE(lifecycle_record_id,ordinal)
+    ) STRICT;
+
+    CREATE TABLE bid_award_link (
+      bid_notice_id INTEGER NOT NULL REFERENCES bid_notice(bid_notice_id) ON DELETE RESTRICT,
+      lifecycle_award_id INTEGER NOT NULL REFERENCES lifecycle_award(lifecycle_award_id) ON DELETE CASCADE,
+      award_result_id INTEGER REFERENCES award_result(award_result_id) ON DELETE RESTRICT,
+      relationship_source TEXT NOT NULL CHECK(relationship_source IN ('official_integrated_api','candidate','manual_verified')),
+      match_status TEXT NOT NULL CHECK(match_status IN ('official_unmatched','official_matched','candidate','manual_verified')),
+      evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      PRIMARY KEY(bid_notice_id,lifecycle_award_id)
+    ) STRICT;
+    CREATE TABLE bid_contract_link (
+      bid_notice_id INTEGER NOT NULL REFERENCES bid_notice(bid_notice_id) ON DELETE RESTRICT,
+      lifecycle_contract_id INTEGER NOT NULL REFERENCES lifecycle_contract(lifecycle_contract_id) ON DELETE CASCADE,
+      contract_result_id INTEGER REFERENCES contract_result(contract_result_id) ON DELETE RESTRICT,
+      relationship_source TEXT NOT NULL CHECK(relationship_source IN ('official_integrated_api','candidate','manual_verified')),
+      match_status TEXT NOT NULL CHECK(match_status IN ('official_unmatched','official_matched','candidate','manual_verified')),
+      evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      PRIMARY KEY(bid_notice_id,lifecycle_contract_id)
+    ) STRICT;
+    CREATE TABLE lifecycle_group_member (
+      lifecycle_record_id INTEGER NOT NULL REFERENCES lifecycle_record(lifecycle_record_id) ON DELETE CASCADE,
+      member_kind TEXT NOT NULL CHECK(member_kind IN ('award','contract')), member_id INTEGER NOT NULL,
+      relationship_source TEXT NOT NULL CHECK(relationship_source='official_integrated_api'),
+      PRIMARY KEY(lifecycle_record_id,member_kind,member_id)
+    ) STRICT;
+  `,
+}, {
+  version: 14,
+  name: "lifecycle_collection_outcomes",
+  sql: `
+    ALTER TABLE lifecycle_collection_state RENAME TO lifecycle_collection_state_v13;
+    CREATE TABLE lifecycle_collection_state (
+      bid_notice_id INTEGER PRIMARY KEY REFERENCES bid_notice(bid_notice_id) ON DELETE RESTRICT,
+      status TEXT NOT NULL CHECK(status IN ('PENDING','RUNNING','SUCCESS','NO_DATA','FAILED')),
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0),
+      last_attempt_at TEXT, collected_at TEXT, last_call_id TEXT REFERENCES api_call(call_id),
+      last_error_category TEXT, last_error_summary TEXT,
+      updated_at TEXT NOT NULL
+    ) STRICT;
+    INSERT INTO lifecycle_collection_state
+      (bid_notice_id,status,attempts,last_attempt_at,collected_at,last_error_category,last_error_summary,updated_at)
+    SELECT bid_notice_id,
+      CASE status WHEN 'succeeded' THEN 'SUCCESS' WHEN 'failed' THEN 'FAILED'
+        WHEN 'running' THEN 'FAILED' ELSE 'PENDING' END,
+      attempts,last_attempt_at,collected_at,last_error_category,last_error_summary,updated_at
+    FROM lifecycle_collection_state_v13;
+    DROP TABLE lifecycle_collection_state_v13;
+    CREATE INDEX idx_lifecycle_state_retry ON lifecycle_collection_state(status,updated_at);
+    CREATE INDEX idx_contract_decision_no ON contract_result(decision_contract_no);
+  `,
 }];
