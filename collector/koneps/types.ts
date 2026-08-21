@@ -2,6 +2,7 @@ export type KonepsService =
   | "BidPublicInfoService"
   | "ScsbidInfoService"
   | "CntrctInfoService"
+  | "CntrctProcssIntgOpenService"
   | "ThngListInfoService02";
 
 export interface KonepsOperation<TParams extends KonepsRequestParams = KonepsRequestParams> {
@@ -46,12 +47,37 @@ export interface DetailedProductClassificationSearchParams extends KonepsRequest
   readonly dtilPrdctClsfcNoEngNm?: string;
 }
 
+export interface CatalogItemSearchParams extends KonepsRequestParams {
+  readonly dtilPrdctClsfcNo?: string;
+  readonly prdctIdntNo?: string;
+  readonly prdctClsfcNoEngNm?: string;
+  readonly prdctClsfcNoNm?: string;
+  readonly krnPrdctNm?: string;
+  readonly inqryBgnDt?: string;
+  readonly inqryEndDt?: string;
+  readonly chgPrdBgnDt?: string;
+  readonly chgPrdEndDt?: string;
+}
+
 export interface AwardSearchParams extends KonepsRequestParams {
   readonly inqryDiv: "1" | "2" | "3";
   readonly inqryBgnDt?: string;
   readonly inqryEndDt?: string;
   readonly bidNtceNo?: string;
   readonly dtilPrdctClsfcNo?: string;
+}
+
+export interface ContractSearchParams extends KonepsRequestParams {
+  readonly inqryDiv: "1";
+  readonly inqryBgnDate: string;
+  readonly inqryEndDate: string;
+  readonly prdctClsfcNoNm: string;
+}
+
+export interface LifecycleIntegratedParams extends KonepsRequestParams {
+  readonly inqryDiv: "1";
+  readonly bidNtceNo: string;
+  readonly bidNtceOrd?: string;
 }
 
 export interface KonepsEnvelope {

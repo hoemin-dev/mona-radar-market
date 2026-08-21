@@ -1,6 +1,6 @@
 export { KonepsClient } from "./client.js";
 export { loadKonepsConfig } from "./config.js";
-export { AWARD_SEARCH_OPERATION, BID_BASIS_AMOUNT_OPERATION, BID_ITEM_OPERATION, BID_NOTICE_SEARCH_OPERATION, DETAILED_PRODUCT_CLASSIFICATION_SEARCH_OPERATION, KONEPS_SERVICE_ENDPOINTS } from "./endpoints.js";
+export { AWARD_SEARCH_OPERATION, BID_BASIS_AMOUNT_OPERATION, BID_ITEM_OPERATION, BID_NOTICE_SEARCH_OPERATION, CATALOG_ITEM_SEARCH_OPERATION, DETAILED_PRODUCT_CLASSIFICATION_SEARCH_OPERATION, KONEPS_SERVICE_ENDPOINTS, LIFECYCLE_INTEGRATED_OPERATION } from "./endpoints.js";
 export { KonepsError } from "./errors.js";
 export { extractKonepsEnvelope } from "./envelope.js";
 export { loadDevelopmentKonepsEnvironment } from "./environment.js";
