@@ -32,7 +32,7 @@ async function setup():Promise<{db:DatabaseSync;runId:string;item:Record<string,
 test("migration v3 remains valid when databases continue through current schema",()=>{
   const db=new DatabaseSync(":memory:"); db.exec("PRAGMA foreign_keys=ON; BEGIN"); db.exec(MIGRATIONS[0]!.sql); db.exec(MIGRATIONS[1]!.sql); db.exec("PRAGMA user_version=2; COMMIT");
   migrateMarketDatabase(db); migrateMarketDatabase(db);
-  assert.equal(CURRENT_SCHEMA_VERSION,12); assert.equal((db.prepare("PRAGMA user_version").get() as {user_version:number}).user_version,CURRENT_SCHEMA_VERSION);
+  assert.equal(CURRENT_SCHEMA_VERSION,MIGRATIONS.at(-1)?.version); assert.equal((db.prepare("PRAGMA user_version").get() as {user_version:number}).user_version,CURRENT_SCHEMA_VERSION);
   for(const table of ["bid_item","bid_item_revision","bid_basis_amount","bid_basis_amount_revision"]) assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table));
   db.close(); const fresh=openMarketDatabase(":memory:"); assert.equal((fresh.prepare("PRAGMA user_version").get() as {user_version:number}).user_version,CURRENT_SCHEMA_VERSION); fresh.close();
 });
