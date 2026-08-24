@@ -11,6 +11,7 @@ import { chunks, queryMinute, type CollectionPlan } from "./planner.js";
 import { DISCOVERY_QUERY_BASIS, advanceCheckpoint, enqueueWork, markWorkDone, markWorkFailed, markWorkRunning, newId, retryableWork } from "./state.js";
 
 export const COLLECTOR_PAGE_ROWS=5;
+export const INITIAL_MONTH_PAGE_ROWS=100;
 export const MAX_PAGES_PER_CHUNK=10_000;
 export const INITIAL_RANGE_REQUIRED="INITIAL_RANGE_REQUIRED";
 
@@ -24,8 +25,15 @@ export interface CollectorOptions {
   readonly maxApiCalls?:number; readonly maxDiscoveredNotices?:number;
   readonly advanceIncrementalCheckpoint?:boolean; readonly drainEnrichment?:boolean;
   readonly detailedProductClassNo?:string;
+  readonly discoveryPageRows?:number; readonly singleDiscoveryRange?:boolean;
 }
-export interface CollectorResult { readonly runId:string; readonly status:"succeeded"|"partial"|"failed"|"cancelled"; readonly checkpoint:string|null; readonly noticesDiscovered:number; readonly enrichmentCompleted:number; readonly errors:number; readonly failure?:CollectorFailureDiagnostic; }
+export interface CollectorResult { readonly runId:string; readonly status:"succeeded"|"partial"|"failed"|"cancelled"; readonly checkpoint:string|null; readonly noticesDiscovered:number; readonly discoveryTotalCount:number; readonly enrichmentCompleted:number; readonly errors:number; readonly failure?:CollectorFailureDiagnostic; }
+
+export function nextDiscoveryEmptyPageCount(previous:number,actualItemCount:number,processed:number,total:number):number {
+  const count=actualItemCount===0&&processed<total?previous+1:0;
+  if(count>=2)throw new Error("BID_DISCOVERY_PAGINATION_STALLED: repeated empty pages before totalCount was reached");
+  return count;
+}
 
 function iso(now:()=>Date):string{return now().toISOString();}
 function actionCount(database:DatabaseSync,runId:string,operationRunId:string,action:string):void {
@@ -58,7 +66,7 @@ export async function runManualCollection(options:CollectorOptions):Promise<Coll
   const itemRun=startOperationRun(database,{runId,service:BID_NOTICE_SERVICE,operation:ITEM_NAME,queryBasis:"notice_identity",startedAt:iso(now)});
   const basisRun=startOperationRun(database,{runId,service:BID_NOTICE_SERVICE,operation:BASIS_NAME,queryBasis:"notice_identity",startedAt:iso(now)});
   database.prepare("UPDATE collector_operation_run SET overlap_minutes=? WHERE operation_run_id=?").run(plan.overlapMinutes,discoveryRun);
-  let notices=0,enriched=0,errors=0,lastCheckpoint:string|null=null,discoveryFailed=false,failure:CollectorFailureDiagnostic|undefined;
+  let notices=0,discoveryTotalCount=0,enriched=0,errors=0,lastCheckpoint:string|null=null,discoveryFailed=false,failure:CollectorFailureDiagnostic|undefined;
   let apiCalls=0;
   const request=async(operation:any,params:any):Promise<KonepsResponse>=>{if(options.maxApiCalls!==undefined&&apiCalls>=options.maxApiCalls)throw new Error("SMOKE_API_CALL_LIMIT_EXCEEDED");apiCalls+=1;return client.request(operation,params);};
   const progress=(operation:string,range?:{start:string;end:string},page?:number)=>options.onProgress?.({operation,range,page,noticesDiscovered:notices,enrichmentCompleted:enriched,errors});
@@ -86,24 +94,26 @@ export async function runManualCollection(options:CollectorOptions):Promise<Coll
   };
 
   if(options.drainEnrichment!==false) await processWork();
-  for(const range of chunks(plan.effectiveRange)){
+  const discoveryRanges=options.singleDiscoveryRange?[plan.effectiveRange]:chunks(plan.effectiveRange);
+  for(const range of discoveryRanges){
     if(cancelled()) break;
     try{
-      let page=1,total:number|undefined,seen=0; const responseHashes=new Set<string>();
+      let page=1,total:number|undefined,seen=0,emptyPages=0; const responseHashes=new Set<string>();
       do{
         progress(BID_NOTICE_OPERATION,range,page);
-        const params={pageNo:page,numOfRows:COLLECTOR_PAGE_ROWS,type:"json" as const,inqryDiv:"1" as const,inqryBgnDt:queryMinute(range.start),inqryEndDt:queryMinute(range.end),...(options.detailedProductClassNo?{dtilPrdctClsfcNo:options.detailedProductClassNo}:{})};
+        const params={pageNo:page,numOfRows:options.discoveryPageRows??COLLECTOR_PAGE_ROWS,type:"json" as const,inqryDiv:"1" as const,inqryBgnDt:queryMinute(range.start),inqryEndDt:queryMinute(range.end),...(options.detailedProductClassNo?{dtilPrdctClsfcNo:options.detailedProductClassNo}:{})};
         try{
           const response=await request(BID_NOTICE_SEARCH_OPERATION,params); const saved=persistResponse(database,discoveryRun,BID_NOTICE_OPERATION,response,params);
           if(responseHashes.has(saved.responseSha256)) throw new Error("REPEATED_PAGE_RESPONSE"); responseHashes.add(saved.responseSha256);
           total??=response.envelope.totalCount??saved.actualItemCount; if(response.envelope.totalCount!==undefined&&response.envelope.totalCount!==total) throw new Error("TOTAL_COUNT_DRIFT");
+          discoveryTotalCount+=page===1?total:0;
           if(options.maxDiscoveredNotices!==undefined&&total>options.maxDiscoveredNotices)throw new Error("SMOKE_NOTICE_LIMIT_EXCEEDED");
-          if(page>1&&seen<(total??0)&&saved.actualItemCount===0) throw new Error("UNEXPECTED_EMPTY_INTERMEDIATE_PAGE");
           for(const rawId of saved.rawItemIds){
             try{ const result=normalizeBidNoticeRawItem(database,rawId,iso(now)); actionCount(database,runId,discoveryRun,result.action); const row=database.prepare("SELECT bid_ntce_no,bid_ntce_ord FROM bid_notice WHERE source_raw_item_id=?").get(rawId) as {bid_ntce_no:string;bid_ntce_ord:string}|undefined; if(!row) throw new Error("NORMALIZED_NOTICE_NOT_FOUND"); enqueueWork(database,runId,row.bid_ntce_no,row.bid_ntce_ord,iso(now)); notices+=1; }
             catch(error){ normalizationError(database,runId,discoveryRun); throw error; }
           }
           seen+=saved.actualItemCount; page+=1; if(page>MAX_PAGES_PER_CHUNK) throw new Error("MAX_PAGE_LIMIT_EXCEEDED");
+          emptyPages=nextDiscoveryEmptyPageCount(emptyPages,saved.actualItemCount,seen,total??0);
         }catch(error){ persistError(database,discoveryRun,BID_NOTICE_OPERATION,page,params,error,iso(now)); throw error; }
       }while(seen<(total??0));
       if(options.advanceIncrementalCheckpoint!==false) advanceCheckpoint(database,range.end,runId,iso(now)); lastCheckpoint=range.end;
@@ -116,5 +126,5 @@ export async function runManualCollection(options:CollectorOptions):Promise<Coll
   setOperation(database,basisRun,cancelled()?"cancelled":failedFor(BASIS_NAME)?"failed":"succeeded",iso(now));
   const status=cancelled()?"cancelled":discoveryFailed?(lastCheckpoint?"partial":"failed"):errors?"partial":"succeeded";
   database.prepare("UPDATE collector_run SET status=?,completed_at=?,error_summary=? WHERE run_id=?").run(status,iso(now),errors?`${errors} redacted collector error(s)`:null,runId);
-  return {runId,status,checkpoint:lastCheckpoint,noticesDiscovered:notices,enrichmentCompleted:enriched,errors,...(failure?{failure}:{})};
+  return {runId,status,checkpoint:lastCheckpoint,noticesDiscovered:notices,discoveryTotalCount,enrichmentCompleted:enriched,errors,...(failure?{failure}:{})};
 }
