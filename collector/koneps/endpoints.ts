@@ -1,4 +1,4 @@
-import type { AwardSearchParams, BidBasisAmountIdentityParams, BidItemIdentityParams, BidNoticeSearchParams, CatalogItemSearchParams, ContractSearchParams, DetailedProductClassificationSearchParams, LifecycleIntegratedParams, KonepsOperation, KonepsService } from "./types.js";
+import type { AwardSearchParams, BidBasisAmountIdentityParams, BidItemIdentityParams, BidNoticeSearchParams, CatalogItemSearchParams, ContractDetailParams, ContractSearchParams, DetailedProductClassificationSearchParams, LifecycleIntegratedParams, KonepsOperation, KonepsService } from "./types.js";
 
 export const KONEPS_SERVICE_ENDPOINTS: Readonly<Record<KonepsService, string>> = {
   BidPublicInfoService: "https://apis.data.go.kr/1230000/ad/BidPublicInfoService",
@@ -85,6 +85,16 @@ export const CONTRACT_SEARCH_OPERATION: KonepsOperation<ContractSearchParams> = 
       throw new Error("contract date search requires inqryDiv=1 and YYYYMMDD dates");
     }
     if (!params.prdctClsfcNoNm.trim()) throw new Error("prdctClsfcNoNm is required");
+  },
+};
+
+export const CONTRACT_DETAIL_OPERATION: KonepsOperation<ContractDetailParams> = {
+  service: "CntrctInfoService",
+  path: "getCntrctInfoListThngDetail",
+  defaultResponseType: "json",
+  validate(params) {
+    if (params.inqryDiv !== "2") throw new Error("contract detail lookup requires inqryDiv=2");
+    requiredIdentifier(params.untyCntrctNo, "untyCntrctNo");
   },
 };
 

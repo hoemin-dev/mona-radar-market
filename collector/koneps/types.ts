@@ -74,6 +74,11 @@ export interface ContractSearchParams extends KonepsRequestParams {
   readonly prdctClsfcNoNm: string;
 }
 
+export interface ContractDetailParams extends KonepsRequestParams {
+  readonly inqryDiv: "2";
+  readonly untyCntrctNo: string;
+}
+
 export interface LifecycleIntegratedParams extends KonepsRequestParams {
   readonly inqryDiv: "1";
   readonly bidNtceNo: string;

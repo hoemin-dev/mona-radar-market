@@ -740,4 +740,52 @@ export const MIGRATIONS: readonly Migration[] = [{
     CREATE INDEX idx_lifecycle_state_retry ON lifecycle_collection_state(status,updated_at);
     CREATE INDEX idx_contract_decision_no ON contract_result(decision_contract_no);
   `,
+}, {
+  version: 15,
+  name: "source_derived_contract_items",
+  sql: `
+    -- contract_result is intentionally retained as legacy orchestration-derived data.
+    CREATE TABLE contract_header (
+      contract_header_id INTEGER PRIMARY KEY,
+      unty_cntrct_no TEXT NOT NULL UNIQUE,
+      decision_contract_no TEXT,
+      contract_ref_no TEXT,
+      source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT,
+      source_operation TEXT NOT NULL CHECK(source_operation='getCntrctInfoListThngPPSSrch'),
+      raw_json TEXT NOT NULL CHECK(json_valid(raw_json) AND json_type(raw_json)='object'),
+      first_seen_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE contract_detail_state (
+      contract_header_id INTEGER PRIMARY KEY REFERENCES contract_header(contract_header_id) ON DELETE RESTRICT,
+      status TEXT NOT NULL CHECK(status IN ('PENDING','RUNNING','SUCCESS','FAILED')),
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0),
+      last_attempt_at TEXT, completed_at TEXT, last_error_summary TEXT, updated_at TEXT NOT NULL
+    ) STRICT;
+    CREATE INDEX idx_contract_detail_resume ON contract_detail_state(status,updated_at);
+    CREATE TABLE contract_item (
+      contract_item_id INTEGER PRIMARY KEY,
+      contract_header_id INTEGER NOT NULL REFERENCES contract_header(contract_header_id) ON DELETE RESTRICT,
+      source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint)=64),
+      unty_cntrct_no TEXT NOT NULL, decision_contract_no TEXT, contract_ref_no TEXT,
+      product_class_no TEXT, product_identification_no TEXT, product_class_name TEXT, korean_product_name TEXT,
+      quantity TEXT, unit_price_amount TEXT, product_amount TEXT,
+      target_detailed_product_class_no TEXT CHECK(target_detailed_product_class_no IS NULL OR length(target_detailed_product_class_no)=10),
+      resolution_status TEXT NOT NULL CHECK(resolution_status IN ('RESOLVED_TARGET','RESOLVED_NON_TARGET','UNRESOLVED')),
+      resolution_reason TEXT NOT NULL,
+      source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT,
+      source_operation TEXT NOT NULL CHECK(source_operation='getCntrctInfoListThngDetail'),
+      raw_json TEXT NOT NULL CHECK(json_valid(raw_json) AND json_type(raw_json)='object'),
+      first_seen_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(contract_header_id,source_fingerprint)
+    ) STRICT;
+    CREATE INDEX idx_contract_item_target ON contract_item(target_detailed_product_class_no,contract_header_id);
+    CREATE INDEX idx_contract_item_product_id ON contract_item(product_identification_no);
+    CREATE TABLE contract_catalog_cache (
+      product_identification_no TEXT PRIMARY KEY CHECK(length(product_identification_no)=8),
+      detailed_product_class_no TEXT CHECK(detailed_product_class_no IS NULL OR length(detailed_product_class_no)=10),
+      lookup_status TEXT NOT NULL CHECK(lookup_status IN ('FOUND','NOT_FOUND','FAILED')),
+      source_raw_item_id INTEGER REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT,
+      last_error_summary TEXT, observed_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    ) STRICT;
+  `,
 }];
