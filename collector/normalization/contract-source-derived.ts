@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { FIXED_TARGET_CODES } from "../koneps/target-registry.js";
 
-export const CONTRACT_TARGETS = new Set(["4015155300", "4015155301"]);
+export const CONTRACT_TARGETS = FIXED_TARGET_CODES;
 
 const value = (raw: Readonly<Record<string, unknown>>, name: string): string | null => {
   const found = raw[name];

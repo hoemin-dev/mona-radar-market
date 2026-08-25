@@ -2,11 +2,13 @@ import { KonepsClient } from "./client.js";
 import { loadKonepsConfig } from "./config.js";
 import { DETAILED_PRODUCT_CLASSIFICATION_SEARCH_OPERATION } from "./endpoints.js";
 import type { DetailedProductClassificationSearchParams } from "./types.js";
+import { matchingFixedTargets, type FixedTargetStatus } from "./target-registry.js";
 
 export interface CollectorTargetCandidate {
   readonly dtilPrdctClsfcNo: string;
   readonly dtilPrdctClsfcNoNm: string;
   readonly useYn: string;
+  readonly status?: FixedTargetStatus;
 }
 
 type SearchKind = "name" | "exact" | "range";
@@ -35,7 +37,7 @@ export async function searchCollectorTargets(query: string): Promise<{ kind: Sea
   const itemsContainer = record(body?.items);
   const raw = itemsContainer?.item ?? body?.items;
   const items = Array.isArray(raw) ? raw : raw ? [raw] : [];
-  const candidates = items.flatMap((item): CollectorTargetCandidate[] => {
+  const apiCandidates = items.flatMap((item): CollectorTargetCandidate[] => {
     const value = record(item);
     const number = String(value?.dtilPrdctClsfcNo ?? "");
     if (!/^\d{10}$/u.test(number)) return [];
@@ -45,5 +47,16 @@ export async function searchCollectorTargets(query: string): Promise<{ kind: Sea
       useYn: String(value?.useYn ?? ""),
     }];
   });
-  return { kind: request.kind, totalCount: response.envelope.totalCount ?? candidates.length, candidates };
+  const candidates = mergeCollectorTargetCandidates(query, apiCandidates);
+  return { kind: request.kind, totalCount: candidates.length, candidates };
+}
+
+export function mergeCollectorTargetCandidates(query: string, apiCandidates: readonly CollectorTargetCandidate[]): CollectorTargetCandidate[] {
+  const candidates = new Map<string, CollectorTargetCandidate>();
+  for (const target of matchingFixedTargets(query)) candidates.set(target.dtilPrdctClsfcNo, { ...target, useYn: target.status === "historical" ? "과거 코드" : "" });
+  for (const target of apiCandidates) {
+    const merged = { ...candidates.get(target.dtilPrdctClsfcNo), ...target };
+    candidates.set(target.dtilPrdctClsfcNo, merged.status === "historical" ? { ...merged, useYn: "과거 코드" } : merged);
+  }
+  return [...candidates.values()].sort((left, right) => left.dtilPrdctClsfcNo.localeCompare(right.dtilPrdctClsfcNo));
 }
