@@ -21,16 +21,42 @@ export function migrateMarketDatabase(database: DatabaseSync): void {
   if (current > CURRENT_SCHEMA_VERSION) {
     throw new Error(`Market database schema ${current} is newer than supported ${CURRENT_SCHEMA_VERSION}`);
   }
+  if (current >= 16) assertContractSchemaCompatible(database, false);
   for (const migration of MIGRATIONS) {
     if (migration.version <= current) continue;
+    if (migration.version === 16) assertContractSchemaCompatible(database, true);
     database.exec("BEGIN IMMEDIATE");
     try {
       database.exec(migration.sql);
+      if (migration.version === 16) assertContractSchemaCompatible(database, false);
       database.exec(`PRAGMA user_version = ${migration.version}`);
       database.exec("COMMIT");
     } catch (error) {
       database.exec("ROLLBACK");
       throw error;
     }
+  }
+}
+
+const CONTRACT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  contract_header: ["contract_header_id","unty_cntrct_no","decision_contract_no","contract_ref_no","source_raw_item_id","source_operation","raw_json","first_seen_at","updated_at"],
+  contract_detail_state: ["contract_header_id","status","attempts","last_attempt_at","completed_at","last_error_summary","updated_at"],
+  contract_item: ["contract_item_id","contract_header_id","source_fingerprint","unty_cntrct_no","decision_contract_no","contract_ref_no","product_class_no","product_identification_no","product_class_name","korean_product_name","quantity","unit_price_amount","product_amount","target_detailed_product_class_no","resolution_status","resolution_reason","source_raw_item_id","source_operation","raw_json","first_seen_at","updated_at"],
+  contract_catalog_cache: ["product_identification_no","detailed_product_class_no","lookup_status","source_raw_item_id","last_error_summary","observed_at","updated_at"],
+};
+
+function assertContractSchemaCompatible(database: DatabaseSync, allowMissing: boolean): void {
+  for (const [table, expected] of Object.entries(CONTRACT_COLUMNS)) {
+    const object = database.prepare("SELECT type,sql FROM sqlite_master WHERE name=?").get(table) as {type:string;sql:string}|undefined;
+    if (!object) { if (allowMissing) continue; throw new Error(`SCHEMA_INTEGRITY_ERROR: missing ${table}`); }
+    if (object.type !== "table") throw new Error(`SCHEMA_INTEGRITY_ERROR: ${table} is not a table`);
+    const columns=(database.prepare(`PRAGMA table_info(${table})`).all() as {name:string}[]).map(x=>x.name);
+    if (columns.length!==expected.length || expected.some((name,index)=>columns[index]!==name)) throw new Error(`SCHEMA_INTEGRITY_ERROR: incompatible ${table} columns`);
+    if (!/\bSTRICT\s*$/iu.test(object.sql)) throw new Error(`SCHEMA_INTEGRITY_ERROR: ${table} is not STRICT`);
+  }
+  const requiredIndexes: Record<string,string[]>={contract_header:["unty_cntrct_no"],contract_item:["contract_header_id","source_fingerprint"]};
+  for(const [table,columns] of Object.entries(requiredIndexes)){
+    const exists=(database.prepare(`PRAGMA index_list(${table})`).all() as {name:string;unique:number}[]).some(index=>index.unique===1&&(database.prepare(`PRAGMA index_info(${index.name})`).all() as {name:string}[]).map(x=>x.name).join("|")===columns.join("|"));
+    if(!exists && !(allowMissing && !database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table))) throw new Error(`SCHEMA_INTEGRITY_ERROR: missing unique key on ${table}(${columns.join(",")})`);
   }
 }

@@ -788,4 +788,101 @@ export const MIGRATIONS: readonly Migration[] = [{
       last_error_summary TEXT, observed_at TEXT NOT NULL, updated_at TEXT NOT NULL
     ) STRICT;
   `,
+}, {
+  version: 16,
+  name: "repair_source_derived_contract_items",
+  sql: `
+    CREATE TABLE IF NOT EXISTS contract_header (
+      contract_header_id INTEGER PRIMARY KEY, unty_cntrct_no TEXT NOT NULL UNIQUE,
+      decision_contract_no TEXT, contract_ref_no TEXT,
+      source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT,
+      source_operation TEXT NOT NULL CHECK(source_operation='getCntrctInfoListThngPPSSrch'),
+      raw_json TEXT NOT NULL CHECK(json_valid(raw_json) AND json_type(raw_json)='object'),
+      first_seen_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS contract_detail_state (
+      contract_header_id INTEGER PRIMARY KEY REFERENCES contract_header(contract_header_id) ON DELETE RESTRICT,
+      status TEXT NOT NULL CHECK(status IN ('PENDING','RUNNING','SUCCESS','FAILED')),
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0),
+      last_attempt_at TEXT, completed_at TEXT, last_error_summary TEXT, updated_at TEXT NOT NULL
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS idx_contract_detail_resume ON contract_detail_state(status,updated_at);
+    CREATE TABLE IF NOT EXISTS contract_item (
+      contract_item_id INTEGER PRIMARY KEY,
+      contract_header_id INTEGER NOT NULL REFERENCES contract_header(contract_header_id) ON DELETE RESTRICT,
+      source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint)=64),
+      unty_cntrct_no TEXT NOT NULL, decision_contract_no TEXT, contract_ref_no TEXT,
+      product_class_no TEXT, product_identification_no TEXT, product_class_name TEXT, korean_product_name TEXT,
+      quantity TEXT, unit_price_amount TEXT, product_amount TEXT,
+      target_detailed_product_class_no TEXT CHECK(target_detailed_product_class_no IS NULL OR length(target_detailed_product_class_no)=10),
+      resolution_status TEXT NOT NULL CHECK(resolution_status IN ('RESOLVED_TARGET','RESOLVED_NON_TARGET','UNRESOLVED')),
+      resolution_reason TEXT NOT NULL,
+      source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT,
+      source_operation TEXT NOT NULL CHECK(source_operation='getCntrctInfoListThngDetail'),
+      raw_json TEXT NOT NULL CHECK(json_valid(raw_json) AND json_type(raw_json)='object'),
+      first_seen_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(contract_header_id,source_fingerprint)
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS idx_contract_item_target ON contract_item(target_detailed_product_class_no,contract_header_id);
+    CREATE INDEX IF NOT EXISTS idx_contract_item_product_id ON contract_item(product_identification_no);
+    CREATE TABLE IF NOT EXISTS contract_catalog_cache (
+      product_identification_no TEXT PRIMARY KEY CHECK(length(product_identification_no)=8),
+      detailed_product_class_no TEXT CHECK(detailed_product_class_no IS NULL OR length(detailed_product_class_no)=10),
+      lookup_status TEXT NOT NULL CHECK(lookup_status IN ('FOUND','NOT_FOUND','FAILED')),
+      source_raw_item_id INTEGER REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT,
+      last_error_summary TEXT, observed_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    ) STRICT;
+  `,
+}, {
+  version: 17,
+  name: "award_opening_enrichment",
+  sql: `
+    CREATE TABLE opening_enrichment_state (
+      endpoint TEXT NOT NULL, bid_ntce_no TEXT NOT NULL, bid_ntce_ord TEXT NOT NULL,
+      bid_clsfc_no TEXT NOT NULL, rbid_no TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('PENDING','RUNNING','SUCCESS','EMPTY','FAILED')),
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0), last_error TEXT,
+      last_attempt_at TEXT, completed_at TEXT, updated_at TEXT NOT NULL,
+      PRIMARY KEY(endpoint,bid_ntce_no,bid_ntce_ord,bid_clsfc_no,rbid_no)
+    ) STRICT;
+    CREATE INDEX idx_opening_enrichment_resume ON opening_enrichment_state(status,endpoint,updated_at);
+    CREATE TABLE opening_participant (
+      opening_participant_id INTEGER PRIMARY KEY,
+      bid_ntce_no TEXT NOT NULL,bid_ntce_ord TEXT NOT NULL,bid_clsfc_no TEXT NOT NULL,rbid_no TEXT NOT NULL,
+      opening_result_type_name TEXT,opening_rank TEXT,bidder_business_no TEXT,bidder_name TEXT,bidder_ceo_name TEXT,
+      bid_amount INTEGER,bid_rate TEXT,remark TEXT,draw_no_1 TEXT,draw_no_2 TEXT,bid_datetime TEXT,
+      item_fingerprint TEXT NOT NULL CHECK(length(item_fingerprint)=64),
+      source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT,observed_at TEXT NOT NULL,
+      UNIQUE(bid_ntce_no,bid_ntce_ord,bid_clsfc_no,rbid_no,item_fingerprint)
+    ) STRICT;
+    CREATE INDEX idx_opening_participant_identity ON opening_participant(bid_ntce_no,bid_ntce_ord,bid_clsfc_no,rbid_no);
+    CREATE TABLE opening_preliminary_price (
+      opening_preliminary_price_id INTEGER PRIMARY KEY,
+      bid_ntce_no TEXT NOT NULL,bid_ntce_ord TEXT NOT NULL,bid_clsfc_no TEXT NOT NULL,rbid_no TEXT NOT NULL,
+      planned_price INTEGER,basis_amount INTEGER,total_preliminary_price_count INTEGER,preliminary_price_sequence TEXT,
+      preliminary_price INTEGER,selected_yn TEXT,selected_count INTEGER,actual_opening_datetime TEXT,
+      upper_count_from_basis_amount INTEGER,preliminary_price_created_datetime TEXT,
+      item_fingerprint TEXT NOT NULL CHECK(length(item_fingerprint)=64),
+      source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT,observed_at TEXT NOT NULL,
+      UNIQUE(bid_ntce_no,bid_ntce_ord,bid_clsfc_no,rbid_no,item_fingerprint)
+    ) STRICT;
+    CREATE INDEX idx_opening_preliminary_identity ON opening_preliminary_price(bid_ntce_no,bid_ntce_ord,bid_clsfc_no,rbid_no);
+    CREATE TABLE opening_failure_event (
+      opening_failure_event_id INTEGER PRIMARY KEY,
+      bid_ntce_no TEXT NOT NULL,bid_ntce_ord TEXT NOT NULL,bid_clsfc_no TEXT NOT NULL,rbid_no TEXT NOT NULL,
+      opening_result_type_name TEXT,failure_reason TEXT,
+      item_fingerprint TEXT NOT NULL CHECK(length(item_fingerprint)=64),
+      source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT,observed_at TEXT NOT NULL,
+      UNIQUE(bid_ntce_no,bid_ntce_ord,bid_clsfc_no,rbid_no,item_fingerprint)
+    ) STRICT;
+    CREATE TABLE opening_rebid_event (
+      opening_rebid_event_id INTEGER PRIMARY KEY,
+      bid_ntce_no TEXT NOT NULL,bid_ntce_ord TEXT NOT NULL,bid_clsfc_no TEXT NOT NULL,rbid_no TEXT NOT NULL,
+      opening_result_type_name TEXT,bid_deadline_datetime TEXT,opening_datetime TEXT,rebid_reason TEXT,
+      consortium_agreement_deadline_datetime TEXT,
+      item_fingerprint TEXT NOT NULL CHECK(length(item_fingerprint)=64),
+      source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT,observed_at TEXT NOT NULL,
+      UNIQUE(bid_ntce_no,bid_ntce_ord,bid_clsfc_no,rbid_no,item_fingerprint)
+    ) STRICT;
+  `,
 }];

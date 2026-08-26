@@ -1,4 +1,4 @@
-import type { AwardSearchParams, BidBasisAmountIdentityParams, BidItemIdentityParams, BidNoticeSearchParams, CatalogItemSearchParams, ContractDetailParams, ContractSearchParams, DetailedProductClassificationSearchParams, LifecycleIntegratedParams, KonepsOperation, KonepsService } from "./types.js";
+import type { AwardSearchParams, BidBasisAmountIdentityParams, BidItemIdentityParams, BidNoticeSearchParams, CatalogItemSearchParams, ContractDetailParams, ContractSearchParams, DetailedProductClassificationSearchParams, LifecycleIntegratedParams, OpeningIdentityParams, KonepsOperation, KonepsService } from "./types.js";
 
 export const KONEPS_SERVICE_ENDPOINTS: Readonly<Record<KonepsService, string>> = {
   BidPublicInfoService: "https://apis.data.go.kr/1230000/ad/BidPublicInfoService",
@@ -87,6 +87,13 @@ export const CONTRACT_SEARCH_OPERATION: KonepsOperation<ContractSearchParams> = 
     if (!params.prdctClsfcNoNm.trim()) throw new Error("prdctClsfcNoNm is required");
   },
 };
+
+function openingOperation(path:string):KonepsOperation<OpeningIdentityParams>{return{service:"ScsbidInfoService",path,defaultResponseType:"json",validate(params){requiredIdentifier(params.bidNtceNo,"bidNtceNo");requiredIdentifier(params.bidNtceOrd,"bidNtceOrd");requiredIdentifier(params.bidClsfcNo,"bidClsfcNo");requiredIdentifier(params.rbidNo,"rbidNo");}};}
+export const OPENING_PARTICIPANT_OPERATION=openingOperation("getOpengResultListInfoOpengCompt");
+export const OPENING_PRELIMINARY_PRICE_OPERATION=openingOperation("getOpengResultListInfoThngPreparPcDetail");
+export const OPENING_FAILURE_OPERATION=openingOperation("getOpengResultListInfoFailing");
+export const OPENING_REBID_OPERATION=openingOperation("getOpengResultListInfoRebid");
+export const OPENING_ENRICHMENT_OPERATIONS=[OPENING_PARTICIPANT_OPERATION,OPENING_PRELIMINARY_PRICE_OPERATION,OPENING_FAILURE_OPERATION,OPENING_REBID_OPERATION] as const;
 
 export const CONTRACT_DETAIL_OPERATION: KonepsOperation<ContractDetailParams> = {
   service: "CntrctInfoService",

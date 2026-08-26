@@ -154,7 +154,9 @@ export function persistRawPage(database: DatabaseSync, input: PersistRawPageInpu
       const canonicalJson = stableStringify(item);
       const itemSha256 = sha256(canonicalJson);
       const identity = "bidNtceNo" in item && "bidNtceOrd" in item
-        ? stableStringify({ bidNtceNo: item.bidNtceNo, bidNtceOrd: item.bidNtceOrd })
+        ? stableStringify({ bidNtceNo: item.bidNtceNo, bidNtceOrd: item.bidNtceOrd,
+          ...(item.bidClsfcNo !== undefined ? { bidClsfcNo: item.bidClsfcNo } : {}),
+          ...(item.rbidNo !== undefined ? { rbidNo: item.rbidNo } : {}) })
         : null;
       database.prepare(`INSERT INTO api_raw_item
         (service, operation, item_sha256, canonical_json, source_identity_json, parser_version, first_seen_at)
