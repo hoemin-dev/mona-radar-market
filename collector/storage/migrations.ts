@@ -885,4 +885,48 @@ export const MIGRATIONS: readonly Migration[] = [{
       UNIQUE(bid_ntce_no,bid_ntce_ord,bid_clsfc_no,rbid_no,item_fingerprint)
     ) STRICT;
   `,
+}, {
+  version: 18,
+  name: "bid_notice_enrichment",
+  sql: `
+    CREATE TABLE bid_enrichment_state (
+      endpoint TEXT NOT NULL, bid_ntce_no TEXT NOT NULL, bid_ntce_ord TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('PENDING','RUNNING','SUCCESS','EMPTY','FAILED')),
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0), last_error TEXT,
+      last_attempt_at TEXT, completed_at TEXT, last_checked_at TEXT, updated_at TEXT NOT NULL,
+      PRIMARY KEY(endpoint,bid_ntce_no,bid_ntce_ord),
+      FOREIGN KEY(bid_ntce_no,bid_ntce_ord) REFERENCES bid_notice(bid_ntce_no,bid_ntce_ord) ON DELETE RESTRICT
+    ) STRICT;
+    CREATE INDEX idx_bid_enrichment_resume ON bid_enrichment_state(status,endpoint,updated_at);
+    CREATE INDEX idx_bid_enrichment_checked ON bid_enrichment_state(endpoint,last_checked_at);
+    CREATE TABLE bid_license_limit (
+      bid_license_limit_id INTEGER PRIMARY KEY, bid_ntce_no TEXT NOT NULL, bid_ntce_ord TEXT NOT NULL,
+      limit_group_no TEXT, limit_sequence TEXT, license_limit_name TEXT, allowed_industry_list TEXT, registered_at TEXT,
+      item_fingerprint TEXT NOT NULL CHECK(length(item_fingerprint)=64), source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT, observed_at TEXT NOT NULL,
+      UNIQUE(bid_ntce_no,bid_ntce_ord,item_fingerprint)
+    ) STRICT;
+    CREATE INDEX idx_bid_license_identity ON bid_license_limit(bid_ntce_no,bid_ntce_ord);
+    CREATE TABLE bid_participation_region (
+      bid_participation_region_id INTEGER PRIMARY KEY, bid_ntce_no TEXT NOT NULL, bid_ntce_ord TEXT NOT NULL,
+      limit_sequence TEXT, participation_region_name TEXT, registered_at TEXT,
+      item_fingerprint TEXT NOT NULL CHECK(length(item_fingerprint)=64), source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT, observed_at TEXT NOT NULL,
+      UNIQUE(bid_ntce_no,bid_ntce_ord,item_fingerprint)
+    ) STRICT;
+    CREATE INDEX idx_bid_region_identity ON bid_participation_region(bid_ntce_no,bid_ntce_ord);
+    CREATE TABLE bid_notice_change_event (
+      bid_notice_change_event_id INTEGER PRIMARY KEY, bid_ntce_no TEXT NOT NULL, bid_ntce_ord TEXT NOT NULL,
+      bid_clsfc_no TEXT, rbid_no TEXT, change_item_name TEXT, before_value TEXT, after_value TEXT, changed_at TEXT,
+      source_identity_json TEXT NOT NULL CHECK(json_valid(source_identity_json) AND json_type(source_identity_json)='object'),
+      item_fingerprint TEXT NOT NULL CHECK(length(item_fingerprint)=64), source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT, observed_at TEXT NOT NULL,
+      UNIQUE(bid_ntce_no,bid_ntce_ord,item_fingerprint)
+    ) STRICT;
+    CREATE INDEX idx_bid_change_identity ON bid_notice_change_event(bid_ntce_no,bid_ntce_ord,changed_at);
+    CREATE TABLE bid_eorder_attachment (
+      bid_eorder_attachment_id INTEGER PRIMARY KEY, bid_ntce_no TEXT NOT NULL, bid_ntce_ord TEXT NOT NULL,
+      attachment_sequence TEXT, document_type_name TEXT, file_name TEXT, file_url TEXT,
+      item_fingerprint TEXT NOT NULL CHECK(length(item_fingerprint)=64), source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT, observed_at TEXT NOT NULL,
+      UNIQUE(bid_ntce_no,bid_ntce_ord,item_fingerprint)
+    ) STRICT;
+    CREATE INDEX idx_bid_attachment_identity ON bid_eorder_attachment(bid_ntce_no,bid_ntce_ord);
+  `,
 }];

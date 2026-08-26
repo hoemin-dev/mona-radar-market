@@ -81,6 +81,12 @@ export interface OpeningIdentityParams extends KonepsRequestParams {
   readonly rbidNo: string;
 }
 
+export interface BidEnrichmentIdentityParams extends KonepsRequestParams {
+  readonly inqryDiv: "2";
+  readonly bidNtceNo: string;
+  readonly bidNtceOrd: string;
+}
+
 export interface ContractDetailParams extends KonepsRequestParams {
   readonly inqryDiv: "2";
   readonly untyCntrctNo: string;

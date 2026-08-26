@@ -1,4 +1,4 @@
-import type { AwardSearchParams, BidBasisAmountIdentityParams, BidItemIdentityParams, BidNoticeSearchParams, CatalogItemSearchParams, ContractDetailParams, ContractSearchParams, DetailedProductClassificationSearchParams, LifecycleIntegratedParams, OpeningIdentityParams, KonepsOperation, KonepsService } from "./types.js";
+import type { AwardSearchParams, BidBasisAmountIdentityParams, BidEnrichmentIdentityParams, BidItemIdentityParams, BidNoticeSearchParams, CatalogItemSearchParams, ContractDetailParams, ContractSearchParams, DetailedProductClassificationSearchParams, LifecycleIntegratedParams, OpeningIdentityParams, KonepsOperation, KonepsService } from "./types.js";
 
 export const KONEPS_SERVICE_ENDPOINTS: Readonly<Record<KonepsService, string>> = {
   BidPublicInfoService: "https://apis.data.go.kr/1230000/ad/BidPublicInfoService",
@@ -94,6 +94,13 @@ export const OPENING_PRELIMINARY_PRICE_OPERATION=openingOperation("getOpengResul
 export const OPENING_FAILURE_OPERATION=openingOperation("getOpengResultListInfoFailing");
 export const OPENING_REBID_OPERATION=openingOperation("getOpengResultListInfoRebid");
 export const OPENING_ENRICHMENT_OPERATIONS=[OPENING_PARTICIPANT_OPERATION,OPENING_PRELIMINARY_PRICE_OPERATION,OPENING_FAILURE_OPERATION,OPENING_REBID_OPERATION] as const;
+
+function bidEnrichmentOperation(path:string):KonepsOperation<BidEnrichmentIdentityParams>{return{service:"BidPublicInfoService",path,defaultResponseType:"json",validate(params){if(params.inqryDiv!=="2")throw new Error("bid enrichment identity lookup requires inqryDiv=2");requiredIdentifier(params.bidNtceNo,"bidNtceNo");requiredIdentifier(params.bidNtceOrd,"bidNtceOrd");}};}
+export const BID_LICENSE_LIMIT_OPERATION=bidEnrichmentOperation("getBidPblancListInfoLicenseLimit");
+export const BID_PARTICIPATION_REGION_OPERATION=bidEnrichmentOperation("getBidPblancListInfoPrtcptPsblRgn");
+export const BID_NOTICE_CHANGE_OPERATION=bidEnrichmentOperation("getBidPblancListInfoChgHstryThng");
+export const BID_EORDER_ATTACHMENT_OPERATION=bidEnrichmentOperation("getBidPblancListInfoEorderAtchFileInfo");
+export const BID_ENRICHMENT_OPERATIONS=[BID_LICENSE_LIMIT_OPERATION,BID_PARTICIPATION_REGION_OPERATION,BID_NOTICE_CHANGE_OPERATION,BID_EORDER_ATTACHMENT_OPERATION] as const;
 
 export const CONTRACT_DETAIL_OPERATION: KonepsOperation<ContractDetailParams> = {
   service: "CntrctInfoService",
