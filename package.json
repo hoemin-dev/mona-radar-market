@@ -16,6 +16,7 @@
     "collector:manual": "npm run collector:build && node dist-collector/orchestration/cli.js",
     "collector:backfill": "npm run collector:build && node dist-collector/orchestration/backfill-cli.js",
     "collector:inspect": "npm run collector:build && node dist-collector/orchestration/inspect.js",
+    "search:rebuild-groups": "npm run collector:build && node dist-collector/orchestration/procurement-group-cli.js",
     "collector:enrich-opening": "npm run collector:build && node dist-collector/orchestration/opening-enrichment-cli.js",
     "collector:enrich-bid": "npm run collector:build && node dist-collector/orchestration/bid-enrichment-cli.js",
     "test": "npm run collector:build && node --test dist-collector/koneps/client.test.js dist-collector/storage/raw-persistence.test.js dist-collector/storage/schema-repair.test.js dist-collector/storage/bid-enrichment-migration.test.js dist-collector/normalization/bid-notice.test.js dist-collector/normalization/phase3e.test.js dist-collector/normalization/award.test.js dist-collector/normalization/opening-enrichment.test.js dist-collector/normalization/bid-enrichment.test.js dist-collector/orchestration/collector.test.js dist-collector/orchestration/historical-state.test.js dist-collector/orchestration/initial-state.test.js dist-collector/orchestration/opening-enrichment-collector.test.js dist-collector/orchestration/bid-enrichment-collector.test.js",

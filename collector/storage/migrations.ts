@@ -929,4 +929,44 @@ export const MIGRATIONS: readonly Migration[] = [{
     ) STRICT;
     CREATE INDEX idx_bid_attachment_identity ON bid_eorder_attachment(bid_ntce_no,bid_ntce_ord);
   `,
+}, {
+  version: 19,
+  name: "procurement_search_groups",
+  sql: `
+    CREATE TABLE procurement_group (
+      procurement_group_id INTEGER PRIMARY KEY,
+      representative_date TEXT, representative_title TEXT, demand_institution_name TEXT,
+      detailed_product_class_no TEXT, detailed_product_class_name TEXT,
+      item_category TEXT NOT NULL CHECK(item_category IN ('product','part','mixed','unknown')),
+      representative_winner_name TEXT, representative_award_amount INTEGER, representative_award_rate TEXT,
+      representative_contract_name TEXT, representative_contract_amount INTEGER,
+      has_bid INTEGER NOT NULL CHECK(has_bid IN (0,1)), has_award INTEGER NOT NULL CHECK(has_award IN (0,1)), has_contract INTEGER NOT NULL CHECK(has_contract IN (0,1)),
+      bid_count INTEGER NOT NULL CHECK(bid_count>=0), award_count INTEGER NOT NULL CHECK(award_count>=0), contract_count INTEGER NOT NULL CHECK(contract_count>=0),
+      match_status TEXT NOT NULL CHECK(match_status IN ('EXACT','STRONG','UNLINKED')),
+      rebuilt_at TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE procurement_group_member (
+      procurement_group_id INTEGER NOT NULL REFERENCES procurement_group(procurement_group_id) ON DELETE CASCADE,
+      source_type TEXT NOT NULL CHECK(source_type IN ('BID','AWARD','CONTRACT')),
+      source_id INTEGER NOT NULL, member_role TEXT NOT NULL,
+      match_method TEXT NOT NULL CHECK(match_method IN ('EXACT','STRONG','UNLINKED')),
+      PRIMARY KEY(source_type,source_id)
+    ) STRICT;
+    CREATE INDEX idx_procurement_member_group ON procurement_group_member(procurement_group_id,source_type,source_id);
+    CREATE INDEX idx_procurement_group_latest ON procurement_group(representative_date DESC,procurement_group_id DESC);
+    CREATE INDEX idx_procurement_group_class_date ON procurement_group(detailed_product_class_no,representative_date DESC);
+    CREATE INDEX idx_procurement_group_category_date ON procurement_group(item_category,representative_date DESC);
+    CREATE INDEX idx_procurement_group_presence ON procurement_group(has_bid,has_award,has_contract,representative_date DESC);
+    CREATE TABLE procurement_relation (
+      procurement_relation_id INTEGER PRIMARY KEY,
+      from_type TEXT NOT NULL CHECK(from_type IN ('BID','AWARD','CONTRACT')),
+      from_id INTEGER NOT NULL, to_type TEXT NOT NULL CHECK(to_type IN ('BID','AWARD','CONTRACT')),
+      to_id INTEGER NOT NULL, relation_type TEXT NOT NULL,
+      match_method TEXT NOT NULL CHECK(match_method IN ('EXACT','STRONG')),
+      evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json)), rebuilt_at TEXT NOT NULL,
+      UNIQUE(from_type,from_id,to_type,to_id,relation_type)
+    ) STRICT;
+    CREATE INDEX idx_procurement_relation_from ON procurement_relation(from_type,from_id);
+    CREATE INDEX idx_procurement_relation_to ON procurement_relation(to_type,to_id);
+  `,
 }];
