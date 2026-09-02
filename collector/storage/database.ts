@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { MIGRATIONS } from "./migrations.js";
 
-export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
+export const CURRENT_SCHEMA_VERSION = Math.max(0,...MIGRATIONS.map(migration=>migration.version));
 // Desktop launches pass this path only to the private Node sidecar.  Keeping the
 // default makes the collector CLI convenient during development.
 export const DEFAULT_MARKET_DB_PATH = process.env.MARKET_DB_PATH ?? resolve("runtime", "market", "mona-radar-market.sqlite3");
@@ -22,17 +22,24 @@ export function migrateMarketDatabase(database: DatabaseSync): void {
     throw new Error(`Market database schema ${current} is newer than supported ${CURRENT_SCHEMA_VERSION}`);
   }
   if (current >= 16) assertContractSchemaCompatible(database, false);
-  for (const migration of MIGRATIONS) {
+  for (const migration of [...MIGRATIONS].sort((left,right)=>left.version-right.version)) {
     if (migration.version <= current) continue;
     if (migration.version === 16) assertContractSchemaCompatible(database, true);
+    if (migration.version === 20 || migration.version === 21 || migration.version === 22) database.exec("PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON;");
     database.exec("BEGIN IMMEDIATE");
     try {
       database.exec(migration.sql);
       if (migration.version === 16) assertContractSchemaCompatible(database, false);
       database.exec(`PRAGMA user_version = ${migration.version}`);
       database.exec("COMMIT");
+      if (migration.version === 20 || migration.version === 21 || migration.version === 22) {
+        database.exec("PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON;");
+        const violation=database.prepare("PRAGMA foreign_key_check").get();
+        if(violation)throw new Error("SCHEMA_INTEGRITY_ERROR: contract target migration foreign key violation");
+      }
     } catch (error) {
-      database.exec("ROLLBACK");
+      if(database.isTransaction)database.exec("ROLLBACK");
+      if (migration.version === 20 || migration.version === 21 || migration.version === 22) database.exec("PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON;");
       throw error;
     }
   }

@@ -11,7 +11,7 @@ export interface KonepsClientConfig {
   readonly baseBackoffMs: number;
 }
 
-export const DEFAULT_TIMEOUT_MS = 20_000;
+export const DEFAULT_TIMEOUT_MS = 35_000;
 export const DEFAULT_MAX_RETRIES = 2;
 export const DEFAULT_BASE_BACKOFF_MS = 250;
 
@@ -28,7 +28,7 @@ export function loadKonepsConfig(env: NodeJS.ProcessEnv = process.env): KonepsCl
   return {
     serviceKey,
     serviceKeyMode: mode,
-    // 20 seconds is deliberately much higher than the documented 500 ms average.
+    // Allow for the recently observed KONEPS latency spikes without an overly broad timeout.
     timeoutMs: DEFAULT_TIMEOUT_MS,
     maxRetries: DEFAULT_MAX_RETRIES,
     baseBackoffMs: DEFAULT_BASE_BACKOFF_MS,

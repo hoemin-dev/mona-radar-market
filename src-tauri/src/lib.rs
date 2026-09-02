@@ -476,6 +476,7 @@ fn start_collection(
     state: State<CollectorState>,
     mode: String,
     targets: Option<Value>,
+    contract_action: Option<String>,
 ) -> Result<(), String> {
     let mut guard = state.0.lock().map_err(|_| "collector state lock failed")?;
     if guard.as_mut().and_then(|c| c.try_wait().ok()).is_none() && guard.is_some() {
@@ -489,6 +490,13 @@ fn start_collection(
     if mode == "lifecycle" {
         args[0] = "collector/orchestration/lifecycle-cli.js".into();
     } else if mode == "award" || mode == "contract" {
+        if mode == "contract" {
+            let action = contract_action.as_deref().unwrap_or("resume");
+            if !matches!(action, "fresh" | "resume") {
+                return Err("지원하지 않는 계약 수집 동작입니다.".into());
+            }
+            args.extend(["--action".into(), action.into()]);
+        }
         args[0] = if mode == "award" {
             "collector/orchestration/award-cli.js".into()
         } else {
@@ -511,15 +519,30 @@ fn start_collection(
         args.push("--execute".into());
     }
     let mut command = Command::new(runtime.join("node.exe"));
+    let env_source = configure_koneps_environment(&mut command)?;
     command
         .args(args)
         .current_dir(&runtime)
-        .env("MARKET_DB_PATH", db)
+        .env("MARKET_DB_PATH", &db)
         .env("MARKET_COLLECTOR_PAUSE_FILE", &pause_file)
+        .env("MARKET_COLLECTOR_KIND", &mode)
+        .env("MARKET_COLLECTOR_DIAGNOSTICS", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    configure_koneps_environment(&mut command)?;
+    let _ = app.emit("collector-event", json!({
+        "type":"COLLECTOR_SPAWN",
+        "collector":mode,
+        "executable":runtime.join("node.exe"),
+        "argv":command.get_args().map(|arg|arg.to_string_lossy()).collect::<Vec<_>>(),
+        "cwd":runtime,
+        "databasePath":db,
+        "environmentSource":env_source,
+        "serviceKeyPresent":env_source!="none",
+        "nodeEnv":std::env::var("NODE_ENV").ok(),
+        "httpProxyPresent":std::env::var("HTTP_PROXY").ok().is_some(),
+        "httpsProxyPresent":std::env::var("HTTPS_PROXY").ok().is_some(),
+    }));
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -580,7 +603,7 @@ fn start_collection(
         if let Some((success, exit_code)) = exit {
             let _ = handle.emit(
                 "collector-event",
-                json!({"type":"COLLECTOR_EXIT","success":success,"exitCode":exit_code}),
+                json!({"type":"COLLECTOR_EXIT","success":success,"exitCode":exit_code,"signal":Value::Null}),
             );
             return;
         }

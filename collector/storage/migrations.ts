@@ -4,7 +4,7 @@ export interface Migration {
   readonly sql: string;
 }
 
-export const MIGRATIONS: readonly Migration[] = [{
+export const MIGRATIONS: readonly Migration[] = ([{
   version: 1,
   name: "phase3c_raw_persistence",
   sql: `
@@ -717,6 +717,84 @@ export const MIGRATIONS: readonly Migration[] = [{
     ) STRICT;
   `,
 }, {
+  version: 20,
+  name: "contract_eight_digit_target_class",
+  sql: `
+    ALTER TABLE contract_result RENAME TO contract_result_v19;
+    CREATE TABLE contract_result (
+      contract_result_id INTEGER PRIMARY KEY,
+      target_detailed_product_class_no TEXT NOT NULL CHECK(length(target_detailed_product_class_no) IN (8,10)),
+      decision_contract_no TEXT NOT NULL, contract_no TEXT, contract_name TEXT, contract_method_name TEXT,
+      contract_institution_name TEXT, demand_institution_name TEXT, contract_amount INTEGER, contract_date TEXT,
+      contract_detail_url TEXT, source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id), source_operation TEXT NOT NULL,
+      semantic_row_hash TEXT NOT NULL CHECK(length(semantic_row_hash)=64),
+      semantic_state_json TEXT NOT NULL CHECK(json_valid(semantic_state_json) AND json_type(semantic_state_json)='object'),
+      parse_warnings_json TEXT NOT NULL CHECK(json_valid(parse_warnings_json) AND json_type(parse_warnings_json)='array'),
+      first_normalized_at TEXT NOT NULL, last_normalized_at TEXT NOT NULL,
+      UNIQUE(target_detailed_product_class_no,decision_contract_no)
+    ) STRICT;
+    -- Preserve legacy result identities because lifecycle links may reference them.
+    -- Every result written after this migration uses an 8-digit target.
+    INSERT INTO contract_result SELECT * FROM contract_result_v19;
+    DROP TABLE contract_result_v19;
+    CREATE INDEX idx_contract_target_date ON contract_result(target_detailed_product_class_no,contract_date);
+
+    ALTER TABLE contract_item RENAME TO contract_item_v19;
+    CREATE TABLE contract_item (
+      contract_item_id INTEGER PRIMARY KEY, contract_header_id INTEGER NOT NULL REFERENCES contract_header(contract_header_id) ON DELETE RESTRICT,
+      source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint)=64), unty_cntrct_no TEXT NOT NULL,
+      decision_contract_no TEXT, contract_ref_no TEXT, product_class_no TEXT, product_identification_no TEXT,
+      product_class_name TEXT, korean_product_name TEXT, quantity TEXT, unit_price_amount TEXT, product_amount TEXT,
+      target_detailed_product_class_no TEXT CHECK(target_detailed_product_class_no IS NULL OR length(target_detailed_product_class_no) IN (8,10)),
+      resolution_status TEXT NOT NULL CHECK(resolution_status IN ('RESOLVED_TARGET','RESOLVED_NON_TARGET','UNRESOLVED')),
+      resolution_reason TEXT NOT NULL, source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT,
+      source_operation TEXT NOT NULL CHECK(source_operation='getCntrctInfoListThngDetail'),
+      raw_json TEXT NOT NULL CHECK(json_valid(raw_json) AND json_type(raw_json)='object'), first_seen_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(contract_header_id,source_fingerprint)
+    ) STRICT;
+    INSERT INTO contract_item
+    SELECT contract_item_id,contract_header_id,source_fingerprint,unty_cntrct_no,decision_contract_no,contract_ref_no,
+      product_class_no,product_identification_no,product_class_name,korean_product_name,quantity,unit_price_amount,product_amount,
+      CASE WHEN target_detailed_product_class_no IS NULL THEN NULL ELSE substr(target_detailed_product_class_no,1,8) END,
+      resolution_status,resolution_reason,source_raw_item_id,source_operation,raw_json,first_seen_at,updated_at
+    FROM contract_item_v19;
+    DROP TABLE contract_item_v19;
+    CREATE INDEX idx_contract_item_target ON contract_item(target_detailed_product_class_no,contract_header_id);
+    CREATE INDEX idx_contract_item_product_id ON contract_item(product_identification_no);
+
+    ALTER TABLE contract_month_probe RENAME TO contract_month_probe_v19;
+    ALTER TABLE contract_collection_target RENAME TO contract_collection_target_v19;
+    CREATE TABLE contract_collection_target (
+      job_id TEXT NOT NULL REFERENCES contract_collection_job(job_id) ON DELETE RESTRICT,
+      dtil_prdct_clsfc_no TEXT NOT NULL CHECK(length(dtil_prdct_clsfc_no)=8), target_name TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','running','paused','completed')),
+      successful_through_month TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(job_id,dtil_prdct_clsfc_no)
+    ) STRICT;
+    INSERT INTO contract_collection_target
+    SELECT job_id,substr(dtil_prdct_clsfc_no,1,8),MIN(target_name),
+      CASE WHEN MIN(status)='completed' AND MAX(status)='completed' THEN 'completed'
+           WHEN MIN(successful_through_month) IS NULL THEN 'pending' ELSE 'paused' END,
+      MIN(successful_through_month),MAX(updated_at)
+    FROM contract_collection_target_v19 GROUP BY job_id,substr(dtil_prdct_clsfc_no,1,8);
+    CREATE TABLE contract_month_probe (
+      job_id TEXT NOT NULL, dtil_prdct_clsfc_no TEXT NOT NULL CHECK(length(dtil_prdct_clsfc_no)=8),
+      month TEXT NOT NULL CHECK(length(month)=7), range_start TEXT NOT NULL, range_end TEXT NOT NULL,
+      total_count INTEGER NOT NULL CHECK(total_count>=0), status TEXT NOT NULL CHECK(status IN ('probed','collecting','collected','partial')),
+      probed_at TEXT NOT NULL, completed_at TEXT, last_run_id TEXT REFERENCES collector_run(run_id),
+      PRIMARY KEY(job_id,dtil_prdct_clsfc_no,month),
+      FOREIGN KEY(job_id,dtil_prdct_clsfc_no) REFERENCES contract_collection_target(job_id,dtil_prdct_clsfc_no) ON DELETE RESTRICT
+    ) STRICT;
+    INSERT INTO contract_month_probe
+    SELECT job_id,substr(dtil_prdct_clsfc_no,1,8),month,MIN(range_start),MAX(range_end),MAX(total_count),
+      CASE WHEN MIN(status)='collected' AND MAX(status)='collected' THEN 'collected'
+           WHEN MIN(status)='partial' THEN 'partial' ELSE 'probed' END,
+      MAX(probed_at),MAX(completed_at),MAX(last_run_id)
+    FROM contract_month_probe_v19 GROUP BY job_id,substr(dtil_prdct_clsfc_no,1,8),month;
+    DROP TABLE contract_month_probe_v19;
+    DROP TABLE contract_collection_target_v19;
+    CREATE INDEX idx_contract_resume ON contract_collection_target(job_id,status,dtil_prdct_clsfc_no);
+  `,
+}, {
   version: 14,
   name: "lifecycle_collection_outcomes",
   sql: `
@@ -969,4 +1047,144 @@ export const MIGRATIONS: readonly Migration[] = [{
     CREATE INDEX idx_procurement_relation_from ON procurement_relation(from_type,from_id);
     CREATE INDEX idx_procurement_relation_to ON procurement_relation(to_type,to_id);
   `,
-}];
+}, {
+  version: 21,
+  name: "repair_contract_eight_digit_target_checkpoint",
+  sql: `
+    -- Some v20 databases contain the result/item changes but retained the v13
+    -- Contract target/checkpoint tables. Rebuild only those two tables.
+    ALTER TABLE contract_month_probe RENAME TO contract_month_probe_v20;
+    ALTER TABLE contract_collection_target RENAME TO contract_collection_target_v20;
+    CREATE TABLE contract_collection_target (
+      job_id TEXT NOT NULL REFERENCES contract_collection_job(job_id) ON DELETE RESTRICT,
+      dtil_prdct_clsfc_no TEXT NOT NULL CHECK(length(dtil_prdct_clsfc_no)=8), target_name TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','running','paused','completed')),
+      successful_through_month TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(job_id,dtil_prdct_clsfc_no)
+    ) STRICT;
+    INSERT INTO contract_collection_target
+    SELECT job_id,substr(dtil_prdct_clsfc_no,1,8),MIN(target_name),
+      CASE WHEN MIN(status)='completed' AND MAX(status)='completed' THEN 'completed'
+           WHEN MIN(successful_through_month) IS NULL THEN 'pending' ELSE 'paused' END,
+      MIN(successful_through_month),MAX(updated_at)
+    FROM contract_collection_target_v20 GROUP BY job_id,substr(dtil_prdct_clsfc_no,1,8);
+    CREATE TABLE contract_month_probe (
+      job_id TEXT NOT NULL, dtil_prdct_clsfc_no TEXT NOT NULL CHECK(length(dtil_prdct_clsfc_no)=8),
+      month TEXT NOT NULL CHECK(length(month)=7), range_start TEXT NOT NULL, range_end TEXT NOT NULL,
+      total_count INTEGER NOT NULL CHECK(total_count>=0), status TEXT NOT NULL CHECK(status IN ('probed','collecting','collected','partial')),
+      probed_at TEXT NOT NULL, completed_at TEXT, last_run_id TEXT REFERENCES collector_run(run_id),
+      PRIMARY KEY(job_id,dtil_prdct_clsfc_no,month),
+      FOREIGN KEY(job_id,dtil_prdct_clsfc_no) REFERENCES contract_collection_target(job_id,dtil_prdct_clsfc_no) ON DELETE RESTRICT
+    ) STRICT;
+    INSERT INTO contract_month_probe
+    SELECT job_id,substr(dtil_prdct_clsfc_no,1,8),month,MIN(range_start),MAX(range_end),MAX(total_count),
+      CASE WHEN MIN(status)='collected' AND MAX(status)='collected' THEN 'collected'
+           WHEN MIN(status)='partial' THEN 'partial' ELSE 'probed' END,
+      MAX(probed_at),MAX(completed_at),MAX(last_run_id)
+    FROM contract_month_probe_v20 GROUP BY job_id,substr(dtil_prdct_clsfc_no,1,8),month;
+    DROP TABLE contract_month_probe_v20;
+    DROP TABLE contract_collection_target_v20;
+    CREATE INDEX idx_contract_resume ON contract_collection_target(job_id,status,dtil_prdct_clsfc_no);
+  `,
+}, {
+  version: 22,
+  name: "contract_identity_by_decision_number",
+  sql: `
+    CREATE TEMP TABLE contract_result_keep_v22 AS
+    SELECT decision_contract_no,MIN(contract_result_id) keep_id
+    FROM contract_result GROUP BY decision_contract_no;
+
+    UPDATE bid_contract_link
+    SET contract_result_id=(SELECT k.keep_id FROM contract_result r JOIN contract_result_keep_v22 k USING(decision_contract_no) WHERE r.contract_result_id=bid_contract_link.contract_result_id)
+    WHERE contract_result_id IS NOT NULL;
+
+    ALTER TABLE procurement_group_member RENAME TO procurement_group_member_v21;
+    CREATE TABLE procurement_group_member (
+      procurement_group_id INTEGER NOT NULL REFERENCES procurement_group(procurement_group_id) ON DELETE CASCADE,
+      source_type TEXT NOT NULL CHECK(source_type IN ('BID','AWARD','CONTRACT')),
+      source_id INTEGER NOT NULL, member_role TEXT NOT NULL,
+      match_method TEXT NOT NULL CHECK(match_method IN ('EXACT','STRONG','UNLINKED')),
+      PRIMARY KEY(source_type,source_id)
+    ) STRICT;
+    INSERT INTO procurement_group_member
+    SELECT MIN(m.procurement_group_id),m.source_type,
+      CASE WHEN m.source_type='CONTRACT' THEN COALESCE(k.keep_id,m.source_id) ELSE m.source_id END,
+      MIN(m.member_role),MIN(m.match_method)
+    FROM procurement_group_member_v21 m
+    LEFT JOIN contract_result r ON m.source_type='CONTRACT' AND r.contract_result_id=m.source_id
+    LEFT JOIN contract_result_keep_v22 k ON k.decision_contract_no=r.decision_contract_no
+    GROUP BY m.source_type,CASE WHEN m.source_type='CONTRACT' THEN COALESCE(k.keep_id,m.source_id) ELSE m.source_id END;
+    DROP TABLE procurement_group_member_v21;
+    CREATE INDEX idx_procurement_member_group ON procurement_group_member(procurement_group_id,source_type,source_id);
+
+    ALTER TABLE procurement_relation RENAME TO procurement_relation_v21;
+    CREATE TABLE procurement_relation (
+      procurement_relation_id INTEGER PRIMARY KEY,
+      from_type TEXT NOT NULL CHECK(from_type IN ('BID','AWARD','CONTRACT')),
+      from_id INTEGER NOT NULL, to_type TEXT NOT NULL CHECK(to_type IN ('BID','AWARD','CONTRACT')),
+      to_id INTEGER NOT NULL, relation_type TEXT NOT NULL,
+      match_method TEXT NOT NULL CHECK(match_method IN ('EXACT','STRONG')),
+      evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json)), rebuilt_at TEXT NOT NULL,
+      UNIQUE(from_type,from_id,to_type,to_id,relation_type)
+    ) STRICT;
+    INSERT INTO procurement_relation
+    SELECT MIN(p.procurement_relation_id),p.from_type,
+      CASE WHEN p.from_type='CONTRACT' THEN COALESCE(fk.keep_id,p.from_id) ELSE p.from_id END,
+      p.to_type,CASE WHEN p.to_type='CONTRACT' THEN COALESCE(tk.keep_id,p.to_id) ELSE p.to_id END,
+      p.relation_type,MIN(p.match_method),MIN(p.evidence_json),MIN(p.rebuilt_at)
+    FROM procurement_relation_v21 p
+    LEFT JOIN contract_result fr ON p.from_type='CONTRACT' AND fr.contract_result_id=p.from_id
+    LEFT JOIN contract_result_keep_v22 fk ON fk.decision_contract_no=fr.decision_contract_no
+    LEFT JOIN contract_result tr ON p.to_type='CONTRACT' AND tr.contract_result_id=p.to_id
+    LEFT JOIN contract_result_keep_v22 tk ON tk.decision_contract_no=tr.decision_contract_no
+    GROUP BY p.from_type,CASE WHEN p.from_type='CONTRACT' THEN COALESCE(fk.keep_id,p.from_id) ELSE p.from_id END,
+      p.to_type,CASE WHEN p.to_type='CONTRACT' THEN COALESCE(tk.keep_id,p.to_id) ELSE p.to_id END,p.relation_type;
+    DROP TABLE procurement_relation_v21;
+    CREATE INDEX idx_procurement_relation_from ON procurement_relation(from_type,from_id);
+    CREATE INDEX idx_procurement_relation_to ON procurement_relation(to_type,to_id);
+
+    ALTER TABLE contract_result RENAME TO contract_result_v21;
+    CREATE TABLE contract_result (
+      contract_result_id INTEGER PRIMARY KEY,
+      target_detailed_product_class_no TEXT NOT NULL CHECK(length(target_detailed_product_class_no)=8),
+      decision_contract_no TEXT NOT NULL UNIQUE, contract_no TEXT, contract_name TEXT, contract_method_name TEXT,
+      contract_institution_name TEXT, demand_institution_name TEXT, contract_amount INTEGER, contract_date TEXT,
+      contract_detail_url TEXT, source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id), source_operation TEXT NOT NULL,
+      semantic_row_hash TEXT NOT NULL CHECK(length(semantic_row_hash)=64),
+      semantic_state_json TEXT NOT NULL CHECK(json_valid(semantic_state_json) AND json_type(semantic_state_json)='object'),
+      parse_warnings_json TEXT NOT NULL CHECK(json_valid(parse_warnings_json) AND json_type(parse_warnings_json)='array'),
+      first_normalized_at TEXT NOT NULL, last_normalized_at TEXT NOT NULL
+    ) STRICT;
+    INSERT INTO contract_result
+    SELECT r.contract_result_id,substr(r.target_detailed_product_class_no,1,8),r.decision_contract_no,r.contract_no,r.contract_name,
+      r.contract_method_name,r.contract_institution_name,r.demand_institution_name,r.contract_amount,r.contract_date,r.contract_detail_url,
+      r.source_raw_item_id,r.source_operation,r.semantic_row_hash,r.semantic_state_json,r.parse_warnings_json,r.first_normalized_at,r.last_normalized_at
+    FROM contract_result_v21 r JOIN contract_result_keep_v22 k ON k.keep_id=r.contract_result_id;
+    DROP TABLE contract_result_v21;
+    CREATE INDEX idx_contract_target_date ON contract_result(target_detailed_product_class_no,contract_date);
+    CREATE INDEX idx_contract_decision_no ON contract_result(decision_contract_no);
+
+    ALTER TABLE contract_item RENAME TO contract_item_v21;
+    CREATE TABLE contract_item (
+      contract_item_id INTEGER PRIMARY KEY, contract_header_id INTEGER NOT NULL REFERENCES contract_header(contract_header_id) ON DELETE RESTRICT,
+      source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint)=64), unty_cntrct_no TEXT NOT NULL,
+      decision_contract_no TEXT, contract_ref_no TEXT, product_class_no TEXT, product_identification_no TEXT,
+      product_class_name TEXT, korean_product_name TEXT, quantity TEXT, unit_price_amount TEXT, product_amount TEXT,
+      target_detailed_product_class_no TEXT CHECK(target_detailed_product_class_no IS NULL OR length(target_detailed_product_class_no)=8),
+      resolution_status TEXT NOT NULL CHECK(resolution_status IN ('RESOLVED_TARGET','RESOLVED_NON_TARGET','UNRESOLVED')),
+      resolution_reason TEXT NOT NULL, source_raw_item_id INTEGER NOT NULL REFERENCES api_raw_item(raw_item_id) ON DELETE RESTRICT,
+      source_operation TEXT NOT NULL CHECK(source_operation='getCntrctInfoListThngDetail'),
+      raw_json TEXT NOT NULL CHECK(json_valid(raw_json) AND json_type(raw_json)='object'), first_seen_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(contract_header_id,source_fingerprint)
+    ) STRICT;
+    INSERT INTO contract_item
+    SELECT contract_item_id,contract_header_id,source_fingerprint,unty_cntrct_no,decision_contract_no,contract_ref_no,
+      product_class_no,product_identification_no,product_class_name,korean_product_name,quantity,unit_price_amount,product_amount,
+      CASE WHEN target_detailed_product_class_no IS NULL THEN NULL ELSE substr(target_detailed_product_class_no,1,8) END,
+      resolution_status,resolution_reason,source_raw_item_id,source_operation,raw_json,first_seen_at,updated_at
+    FROM contract_item_v21;
+    DROP TABLE contract_item_v21;
+    CREATE INDEX idx_contract_item_target ON contract_item(target_detailed_product_class_no,contract_header_id);
+    CREATE INDEX idx_contract_item_product_id ON contract_item(product_identification_no);
+    DROP TABLE contract_result_keep_v22;
+  `,
+}] as Migration[]).sort((left,right)=>left.version-right.version);

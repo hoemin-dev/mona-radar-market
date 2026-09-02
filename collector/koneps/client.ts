@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { KONEPS_SERVICE_ENDPOINTS } from "./endpoints.js";
 import { KonepsError } from "./errors.js";
 import { extractKonepsEnvelope } from "./envelope.js";
@@ -10,6 +11,23 @@ import type {
   KonepsResponse,
 } from "./types.js";
 import type { KonepsClientConfig } from "./config.js";
+
+function diagnosticTarget(params: KonepsRequestParams): string | undefined {
+  const values = params as unknown as Record<string, unknown>;
+  return [values.dtilPrdctClsfcNo, values.prdctClsfcNoNm, values.bidNtceNo]
+    .find((value): value is string => typeof value === "string" && value.length > 0);
+}
+
+function diagnosticMonth(params: KonepsRequestParams): string | undefined {
+  const values = params as unknown as Record<string, unknown>;
+  const value = [values.inqryBgnDate, values.inqryBgnDt]
+    .find((candidate): candidate is string => typeof candidate === "string" && /^\d{6}/u.test(candidate));
+  return value ? `${value.slice(0, 4)}-${value.slice(4, 6)}` : undefined;
+}
+
+function diagnosticLog(event: Readonly<Record<string, unknown>>): void {
+  if (process.env.MARKET_COLLECTOR_DIAGNOSTICS === "1") console.log(JSON.stringify(event));
+}
 
 export interface KonepsClientOptions {
   readonly config: KonepsClientConfig;
@@ -132,6 +150,22 @@ export class KonepsClient {
       await this.#pacer?.beforeAttempt();
       attemptCount += 1;
       this.#requestCount += 1;
+      const attemptStarted = this.#now();
+      diagnosticLog({
+        type: "KONEPS_REQUEST_START",
+        collector: process.env.MARKET_COLLECTOR_KIND ?? "probe",
+        phase: "request",
+        endpoint: `${KONEPS_SERVICE_ENDPOINTS[operation.service]}/${operation.path}`,
+        month: diagnosticMonth(params),
+        target: diagnosticTarget(params),
+        databasePath: process.env.MARKET_DB_PATH,
+        cwd: process.cwd(),
+        timeoutMs: this.#config.timeoutMs,
+        attempt: attemptCount,
+        serviceKeyPresent: this.#config.serviceKey.length > 0,
+        serviceKeyLength: this.#config.serviceKey.length,
+        serviceKeyHashPrefix: createHash("sha256").update(this.#config.serviceKey).digest("hex").slice(0, 8),
+      });
       const controller = new AbortController();
       let timedOut = false;
       const timeout = setTimeout(() => {
@@ -224,6 +258,16 @@ export class KonepsClient {
         const category = timedOut || (error instanceof DOMException && error.name === "AbortError")
           ? "timeout"
           : "network";
+        diagnosticLog({
+          type: "KONEPS_REQUEST_FAILURE",
+          collector: process.env.MARKET_COLLECTOR_KIND ?? "probe",
+          phase: category,
+          endpoint: `${KONEPS_SERVICE_ENDPOINTS[operation.service]}/${operation.path}`,
+          month: diagnosticMonth(params),
+          target: diagnosticTarget(params),
+          attempt: attemptCount,
+          elapsedMs: Math.max(0, this.#now().getTime() - attemptStarted.getTime()),
+        });
         if (attemptCount <= this.#config.maxRetries) {
           await this.#backoff(attemptCount);
           continue;

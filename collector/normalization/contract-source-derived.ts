@@ -1,9 +1,5 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { FIXED_TARGET_CODES } from "../koneps/target-registry.js";
-
-export const CONTRACT_TARGETS = FIXED_TARGET_CODES;
-
 const value = (raw: Readonly<Record<string, unknown>>, name: string): string | null => {
   const found = raw[name];
   return typeof found === "string" && found.trim() !== "" ? found.trim() : null;
@@ -42,19 +38,22 @@ export function storeCatalogResolution(db: DatabaseSync, productId: string, reso
     observed_at=excluded.observed_at,updated_at=excluded.updated_at`).run(productId,code,resolution.status,rawItemId,resolution.status==="FAILED"?"catalog lookup failed":null,at,at);
 }
 
-export function upsertContractItem(db: DatabaseSync, headerId: number, rawItemId: number, resolution: CatalogResolution | undefined, at: string): number {
+export function upsertContractItem(db: DatabaseSync, headerId: number, rawItemId: number, contractTargetCodes: readonly string[], at: string): number {
   const row = db.prepare("SELECT canonical_json FROM api_raw_item WHERE raw_item_id=? AND service='CntrctInfoService' AND operation='getCntrctInfoListThngDetail'").get(rawItemId) as {canonical_json:string}|undefined;
   if (!row) throw new Error("RAW item is not a contract detail row");
   const raw = JSON.parse(row.canonical_json) as Record<string,unknown>;
   const productId = value(raw,"prdctIdntNo");
-  const code = resolution?.status === "FOUND" ? resolution.detailedProductClassNo : null;
-  const status = code ? (CONTRACT_TARGETS.has(code) ? "RESOLVED_TARGET" : "RESOLVED_NON_TARGET") : "UNRESOLVED";
-  const reason = !productId ? "MISSING_PRODUCT_IDENTIFICATION_NO" : !resolution ? "CATALOG_NOT_ATTEMPTED" : resolution.status === "FAILED" ? "CATALOG_FAILED" : resolution.status === "NOT_FOUND" ? "CATALOG_NOT_FOUND" : CONTRACT_TARGETS.has(code!) ? "OFFICIAL_CATALOG_TARGET" : "OFFICIAL_CATALOG_NON_TARGET";
+  const productClassNo = value(raw,"prdctClsfcNo");
+  if(contractTargetCodes.some(code=>!/^\d{8}$/.test(code)))throw new Error("INVALID_CONTRACT_TARGET");
+  const isTarget = productClassNo !== null && contractTargetCodes.includes(productClassNo);
+  const code = isTarget ? productClassNo : null;
+  const status = isTarget ? "RESOLVED_TARGET" : "RESOLVED_NON_TARGET";
+  const reason = isTarget ? "OFFICIAL_CONTRACT_DETAIL_CLASS_TARGET" : "OFFICIAL_CONTRACT_DETAIL_CLASS_NON_TARGET";
   const fingerprint = createHash("sha256").update(row.canonical_json).digest("hex");
   const header = db.prepare("SELECT unty_cntrct_no FROM contract_header WHERE contract_header_id=?").get(headerId) as {unty_cntrct_no:string};
   const result = db.prepare(`INSERT INTO contract_item(contract_header_id,source_fingerprint,unty_cntrct_no,decision_contract_no,contract_ref_no,product_class_no,product_identification_no,product_class_name,korean_product_name,quantity,unit_price_amount,product_amount,target_detailed_product_class_no,resolution_status,resolution_reason,source_raw_item_id,source_operation,raw_json,first_seen_at,updated_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'getCntrctInfoListThngDetail',?,?,?) ON CONFLICT(contract_header_id,source_fingerprint) DO UPDATE SET
     target_detailed_product_class_no=excluded.target_detailed_product_class_no,resolution_status=excluded.resolution_status,resolution_reason=excluded.resolution_reason,
-    source_raw_item_id=excluded.source_raw_item_id,raw_json=excluded.raw_json,updated_at=excluded.updated_at RETURNING contract_item_id`).get(headerId,fingerprint,value(raw,"untyCntrctNo")??header.unty_cntrct_no,value(raw,"dcsnCntrctNo"),value(raw,"cntrctRefNo"),value(raw,"prdctClsfcNo"),productId,value(raw,"prdctClsfcNoNm"),value(raw,"krnPrdctNm"),value(raw,"prdctQty"),value(raw,"qtyUprcAmt"),value(raw,"prdctAmt"),code,status,reason,rawItemId,row.canonical_json,at,at) as {contract_item_id:number};
+    source_raw_item_id=excluded.source_raw_item_id,raw_json=excluded.raw_json,updated_at=excluded.updated_at RETURNING contract_item_id`).get(headerId,fingerprint,value(raw,"untyCntrctNo")??header.unty_cntrct_no,value(raw,"dcsnCntrctNo"),value(raw,"cntrctRefNo"),productClassNo,productId,value(raw,"prdctClsfcNoNm"),value(raw,"krnPrdctNm"),value(raw,"prdctQty"),value(raw,"qtyUprcAmt"),value(raw,"prdctAmt"),code,status,reason,rawItemId,row.canonical_json,at,at) as {contract_item_id:number};
   return result.contract_item_id;
 }

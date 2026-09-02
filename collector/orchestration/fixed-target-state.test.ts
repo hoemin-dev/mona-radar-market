@@ -12,6 +12,6 @@ test("award and contract jobs accept both fixed targets", () => {
   const contractJob = ensureContractJob(db, FIXED_TARGETS, now);
   const codes = (table: string, job: string) => (db.prepare(`SELECT dtil_prdct_clsfc_no code FROM ${table} WHERE job_id=? ORDER BY code`).all(job) as {code:string}[]).map(row => row.code);
   assert.deepEqual(codes("award_collection_target", awardJob), ["4015155300", "4015155301"]);
-  assert.deepEqual(codes("contract_collection_target", contractJob), ["4015155300", "4015155301"]);
+  assert.deepEqual(codes("contract_collection_target", contractJob), ["40151553"]);
   db.close();
 });
