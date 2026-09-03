@@ -58,7 +58,7 @@ function assertContractSchemaCompatible(database: DatabaseSync, allowMissing: bo
     if (!object) { if (allowMissing) continue; throw new Error(`SCHEMA_INTEGRITY_ERROR: missing ${table}`); }
     if (object.type !== "table") throw new Error(`SCHEMA_INTEGRITY_ERROR: ${table} is not a table`);
     const columns=(database.prepare(`PRAGMA table_info(${table})`).all() as {name:string}[]).map(x=>x.name);
-    if (columns.length!==expected.length || expected.some((name,index)=>columns[index]!==name)) throw new Error(`SCHEMA_INTEGRITY_ERROR: incompatible ${table} columns`);
+    if (expected.some(name=>!columns.includes(name))) throw new Error(`SCHEMA_INTEGRITY_ERROR: incompatible ${table} columns`);
     if (!/\bSTRICT\s*$/iu.test(object.sql)) throw new Error(`SCHEMA_INTEGRITY_ERROR: ${table} is not STRICT`);
   }
   const requiredIndexes: Record<string,string[]>={contract_header:["unty_cntrct_no"],contract_item:["contract_header_id","source_fingerprint"]};

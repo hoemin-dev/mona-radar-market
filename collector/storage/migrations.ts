@@ -1187,4 +1187,79 @@ export const MIGRATIONS: readonly Migration[] = ([{
     CREATE INDEX idx_contract_item_product_id ON contract_item(product_identification_no);
     DROP TABLE contract_result_keep_v22;
   `,
+}, {
+  version: 23,
+  name: "canonical_contract_domain",
+  sql: `
+    ALTER TABLE contract_result ADD COLUMN contract_ref_no TEXT;
+    ALTER TABLE contract_result ADD COLUMN unified_contract_no TEXT;
+    ALTER TABLE contract_result ADD COLUMN registered_at TEXT;
+    ALTER TABLE contract_result ADD COLUMN business_division_name TEXT;
+    ALTER TABLE contract_result ADD COLUMN total_contract_amount INTEGER;
+    ALTER TABLE contract_result ADD COLUMN contract_period TEXT;
+    ALTER TABLE contract_result ADD COLUMN contract_info_url TEXT;
+    ALTER TABLE contract_result ADD COLUMN base_law_name TEXT;
+    ALTER TABLE contract_result ADD COLUMN base_details TEXT;
+    ALTER TABLE contract_result ADD COLUMN payment_division_name TEXT;
+    ALTER TABLE contract_result ADD COLUMN long_term_continuation_division_name TEXT;
+    ALTER TABLE contract_result ADD COLUMN common_contract_yn TEXT;
+    ALTER TABLE contract_result ADD COLUMN guarantee_money_rate TEXT;
+    ALTER TABLE contract_result ADD COLUMN delay_compensation_rate TEXT;
+    ALTER TABLE contract_result ADD COLUMN contract_institution_code TEXT;
+    ALTER TABLE contract_result ADD COLUMN contract_institution_division_name TEXT;
+    ALTER TABLE contract_result ADD COLUMN contract_department_name TEXT;
+    ALTER TABLE contract_result ADD COLUMN contract_officer_name TEXT;
+    ALTER TABLE contract_result ADD COLUMN contract_officer_tel_no TEXT;
+    ALTER TABLE contract_result ADD COLUMN contract_officer_fax_no TEXT;
+    ALTER TABLE contract_result ADD COLUMN creditor_name TEXT;
+    ALTER TABLE contract_result ADD COLUMN information_business_yn TEXT;
+    ALTER TABLE contract_result ADD COLUMN request_no TEXT;
+    ALTER TABLE contract_result ADD COLUMN notice_no TEXT;
+
+    ALTER TABLE contract_item ADD COLUMN delivery_day_count TEXT;
+    ALTER TABLE contract_item ADD COLUMN delivery_deadline TEXT;
+    ALTER TABLE contract_item ADD COLUMN delivery_condition_code TEXT;
+    ALTER TABLE contract_item ADD COLUMN delivery_condition_name TEXT;
+    ALTER TABLE contract_item ADD COLUMN origin_code TEXT;
+    ALTER TABLE contract_item ADD COLUMN origin_name TEXT;
+    ALTER TABLE contract_item ADD COLUMN registered_at TEXT;
+
+    CREATE TABLE contract_corporation (
+      contract_corporation_id INTEGER PRIMARY KEY,
+      contract_result_id INTEGER NOT NULL REFERENCES contract_result(contract_result_id) ON DELETE RESTRICT,
+      sequence_no INTEGER, role_name TEXT, participation_type_name TEXT, corporation_name TEXT NOT NULL,
+      representative_name TEXT, country_name TEXT, share_rate TEXT, display_name TEXT,
+      extra_value TEXT, business_registration_no TEXT, source_value TEXT NOT NULL,
+      UNIQUE(contract_result_id,sequence_no,corporation_name,business_registration_no)
+    ) STRICT;
+    CREATE INDEX idx_contract_corporation_result ON contract_corporation(contract_result_id,sequence_no);
+    CREATE INDEX idx_contract_corporation_name ON contract_corporation(corporation_name);
+
+    CREATE TABLE contract_demand_institution (
+      contract_demand_institution_id INTEGER PRIMARY KEY,
+      contract_result_id INTEGER NOT NULL REFERENCES contract_result(contract_result_id) ON DELETE RESTRICT,
+      sequence_no INTEGER, institution_code TEXT, institution_name TEXT NOT NULL, institution_division_name TEXT,
+      extra_value_1 TEXT, extra_value_2 TEXT, extra_value_3 TEXT, source_value TEXT NOT NULL,
+      UNIQUE(contract_result_id,sequence_no,institution_code,institution_name)
+    ) STRICT;
+    CREATE INDEX idx_contract_demand_result ON contract_demand_institution(contract_result_id,sequence_no);
+    CREATE INDEX idx_contract_demand_name ON contract_demand_institution(institution_name);
+
+    UPDATE contract_result SET
+      contract_ref_no=json_extract(semantic_state_json,'$.contractRefNo'),
+      unified_contract_no=json_extract(semantic_state_json,'$.unifiedContractNo'),
+      registered_at=json_extract(semantic_state_json,'$.registeredAt'),
+      business_division_name=json_extract(semantic_state_json,'$.businessDivisionName'),
+      total_contract_amount=CAST(json_extract(semantic_state_json,'$.totalContractAmount') AS INTEGER),
+      contract_period=json_extract(semantic_state_json,'$.contractPeriod'), contract_info_url=json_extract(semantic_state_json,'$.contractInfoUrl'),
+      base_law_name=json_extract(semantic_state_json,'$.baseLawName'), base_details=json_extract(semantic_state_json,'$.baseDetails'),
+      payment_division_name=json_extract(semantic_state_json,'$.paymentDivisionName'),
+      long_term_continuation_division_name=json_extract(semantic_state_json,'$.longTermContinuationDivisionName'),
+      common_contract_yn=json_extract(semantic_state_json,'$.commonContractYn'), guarantee_money_rate=json_extract(semantic_state_json,'$.guaranteeMoneyRate'),
+      delay_compensation_rate=json_extract(semantic_state_json,'$.delayCompensationRate'), contract_institution_code=json_extract(semantic_state_json,'$.contractInstitutionCode'),
+      contract_institution_division_name=json_extract(semantic_state_json,'$.contractInstitutionDivisionName'), contract_department_name=json_extract(semantic_state_json,'$.contractDepartmentName'),
+      contract_officer_name=json_extract(semantic_state_json,'$.contractOfficerName'), contract_officer_tel_no=json_extract(semantic_state_json,'$.contractOfficerTelNo'),
+      contract_officer_fax_no=json_extract(semantic_state_json,'$.contractOfficerFaxNo'), creditor_name=json_extract(semantic_state_json,'$.creditorName'),
+      information_business_yn=json_extract(semantic_state_json,'$.informationBusinessYn'), request_no=json_extract(semantic_state_json,'$.requestNo'), notice_no=json_extract(semantic_state_json,'$.noticeNo');
+  `,
 }] as Migration[]).sort((left,right)=>left.version-right.version);
